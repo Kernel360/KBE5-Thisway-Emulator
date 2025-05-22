@@ -1,5 +1,6 @@
 ### ignore.yml ###
 src/main/resources/application.yml
+src/main/resources/db-environment.yml
 
 HELP.md
 .gradle
