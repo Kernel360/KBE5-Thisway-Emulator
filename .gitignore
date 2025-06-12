@@ -63,3 +63,12 @@ logs/
 package-lock.json
 yarn.lock
 Pipfile.lock
+
+# Python version file
+.python-version
+
+# Backup files
+*.old
+*.bak
+*.backup
+*~
