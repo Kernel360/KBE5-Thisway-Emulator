@@ -1,0 +1,4 @@
+{
+  "backend_url": "http://localhost:8080",
+  "comment": "백엔드 서버 URL을 여기서 설정하세요. 예: http://your-backend-server:8080"
+}
