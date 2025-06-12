@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 from services.data_generator import data_generator
-from models.emulator_data import VehicleData, GpsLogRequest, LogResponse
+from models.emulator_data import VehicleData, GpsLogRequest, LogResponse, PowerLogRequest
 from typing import Dict, Any
 
 router = APIRouter(tags=["emulator"])
@@ -66,6 +66,28 @@ async def receive_gps_logs(request: GpsLogRequest):
         # 실패한 로그 데이터 저장 (추후 재전송을 위해)
         data_generator.store_unsent_log(request.mdn, request)
         raise HTTPException(status_code=500, detail="로그 데이터 처리 중 오류가 발생했습니다")
+    
+    # 응답 반환
+    return LogResponse(mdn=request.mdn)
+
+@router.post("/api/logs/power")
+async def receive_power_logs(request: PowerLogRequest):
+    """
+    차량 시동 정보 수신 엔드포인트
+    
+    시동 ON 데이터 처리를 위한 엔드포인트입니다.
+    시동 ON 이벤트 발생 시 호출됩니다.
+    """
+    # 로그 정보 출력
+    print(f"Received Power log from MDN: {request.mdn}")
+    print(f"Power ON time: {request.onTime}, GPS status: {request.gcd}")
+    
+    # 로그 데이터 처리
+    success = data_generator.process_power_log(request)
+    if not success:
+        # 실패한 로그 데이터 저장 (추후 재전송을 위해)
+        data_generator.store_unsent_power_log(request.mdn, request)
+        raise HTTPException(status_code=500, detail="시동 로그 데이터 처리 중 오류가 발생했습니다")
     
     # 응답 반환
     return LogResponse(mdn=request.mdn)
