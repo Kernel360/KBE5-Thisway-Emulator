@@ -61,21 +61,13 @@ class PowerLogGenerator(BaseLogGenerator):
 
         # 시동 ON 처리
         if power_on:
-            # 위치 정보: 직전 시동 OFF의 위치 사용
-            if mdn in self.emulator_manager.last_positions:
-                last_pos = self.emulator_manager.last_positions[mdn]
-                lat = last_pos["latitude"]
-                lon = last_pos["longitude"]
+            # 위치 정보: 에뮬레이터의 현재 위치 사용 (GPS 주기정보의 시작위치와 동일하게)
+            lat = emulator["last_latitude"]
+            lon = emulator["last_longitude"]
 
-                # GPS 상태 결정 (random으로 95% 정상 처리)
-                is_gps_normal = random.random() < 0.95
-                gps_status = "A" if is_gps_normal else "P"
-            else:
-                # 최초 시동 ON인 경우 - 위경도 없이 상태값만 설정
-                gps_status = "V"  # GPS 비정상 또는 미장착
-                # 임의의 초기 위치 설정
-                lat = emulator["last_latitude"]
-                lon = emulator["last_longitude"]
+            # GPS 상태 결정 (random으로 95% 정상 처리)
+            is_gps_normal = random.random() < 0.95
+            gps_status = "A" if is_gps_normal else "P"
 
             # 시동 ON 시 속도는 항상 0
             spd = "0"
