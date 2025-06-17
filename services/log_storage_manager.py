@@ -19,20 +19,18 @@ def get_backend_url():
     """
     백엔드 URL 설정 가져오기
 
-    1. 환경 변수 BACKEND_URL 확인
-    2. config.json 파일 확인
+    1. config.json 파일 확인
+    2. 환경 변수 BACKEND_URL 확인
     3. 기본값 사용
 
     Returns:
         str: 백엔드 URL
     """
-    # 기본 백엔드 URL
+    # 기본 백엔드 URL (최후의 fallback)
     default_backend_url = "http://localhost:8080"
 
-    # 1. 환경 변수에서 백엔드 URL 확인
-    backend_url = os.environ.get("BACKEND_URL", default_backend_url)
-
-    # 2. 설정 파일에서 백엔드 URL 확인 (있는 경우)
+    # 1. 설정 파일에서 백엔드 URL 확인
+    backend_url = None
     try:
         # 설정 파일이 있는지 확인
         if os.path.exists("config.json"):
@@ -43,6 +41,17 @@ def get_backend_url():
                     print(f"[INFO] config.json에서 백엔드 URL 설정 로드: {backend_url}")
     except Exception as e:
         print(f"[경고] 설정 파일 읽기 실패: {str(e)}")
+
+    # 2. 환경 변수에서 백엔드 URL 확인 (config.json에서 로드 실패한 경우)
+    if not backend_url:
+        backend_url = os.environ.get("BACKEND_URL")
+        if backend_url:
+            print(f"[INFO] 환경 변수에서 백엔드 URL 설정 로드: {backend_url}")
+
+    # 3. 기본값 사용 (config.json과 환경 변수 모두 실패한 경우)
+    if not backend_url:
+        backend_url = default_backend_url
+        print(f"[INFO] 기본 백엔드 URL 사용: {backend_url}")
 
     return backend_url
 
