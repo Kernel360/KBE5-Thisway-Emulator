@@ -2,7 +2,7 @@
 데이터 생성기 파사드 클래스
 로그 타입별 생성기 클래스를 통합 관리하는 파사드 패턴 구현
 """
-
+import sys
 import threading
 import queue
 from typing import List, Dict, Any, Optional
@@ -270,6 +270,25 @@ class EmulatorDataGenerator:
                 print(f"[DEBUG] 시동 OFF 로그 생성 완료 - MDN: {mdn}, onTime: {power_log.onTime}, offTime: {power_log.offTime}")
                 store_result = self.store_power_log(mdn, power_log)
                 print(f"[INFO] 차량 {mdn} 시동 OFF 로그 생성 및 저장 {'성공' if store_result else '실패'}")
+
+                # 시동 OFF 로그 전송을 위해 대기 로그 처리
+                print(f"[INFO] 시동 OFF 로그 전송을 위해 잠시 대기합니다 - MDN: {mdn}")
+                # 백엔드 전송 대기 로그 개수 확인
+                pending_logs = self.log_storage_manager.count_pending_logs()
+                total_pending = sum(pending_logs.values())
+                print(f"[DEBUG] 현재 백엔드 전송 대기 로그 개수: 총 {total_pending}개 (GPS: {pending_logs['gps']}, 전원: {pending_logs['power']}, 지오펜스: {pending_logs['geofence']}) - MDN: {mdn}")
+
+                # 미전송 로그 처리 (시동 OFF 로그 전송 시도)
+                if total_pending > 0:
+                    self.log_storage_manager.process_pending_logs()
+
+                    # 처리 후 남은 로그 확인
+                    after_pending = self.log_storage_manager.count_pending_logs()
+                    after_total = sum(after_pending.values())
+                    if after_total < total_pending:
+                        print(f"[SUCCESS] {total_pending - after_total}개의 로그가 성공적으로 전송됨")
+                    else:
+                        print(f"[WARNING] 모든 로그 전송 실패 또는 새 로그 추가됨")
             else:
                 print(f"[ERROR] 시동 OFF 로그 생성 실패 - MDN: {mdn}")
 
@@ -313,62 +332,19 @@ class EmulatorDataGenerator:
 
         print(f"[INFO] 에뮬레이터 {mdn} 등록 완료")
 
-        # 차량 시동 시작
+        # 카카오 API에서 경로 데이터를 가져와 에뮬레이터 위치 업데이트
+        print(f"[INFO] 카카오 API 경로 데이터 가져오기 시작 - MDN: {mdn}")
+        gps_log = self.gps_generator.generate_gps_log(mdn, generate_full=True)
+        if gps_log:
+            print(f"[INFO] 카카오 API 경로 데이터 가져오기 성공 - MDN: {mdn}")
+        else:
+            print(f"[WARNING] 카카오 API 경로 데이터 가져오기 실패 - MDN: {mdn}")
+
+        # 차량 시동 시작 (위치가 업데이트된 후에 시동 ON 로그 생성)
         self.start_vehicle(mdn)
 
         return True
 
-    def stop_emulator(self, mdn: str) -> bool:
-        """
-        에뮬레이터 중지 (API 엔드포인트에서 호출)
-
-        Args:
-            mdn: 차량 번호(MDN)
-
-        Returns:
-            bool: 성공 여부
-        """
-        print(f"[DEBUG] stop_emulator 호출됨 - MDN: {mdn}")
-
-        # 차량 시동 종료
-        if self.emulator_manager.is_emulator_active(mdn):
-            print(f"[DEBUG] 에뮬레이터 활성화 상태 - 시동 종료 시작 - MDN: {mdn}")
-            stop_vehicle_result = self.stop_vehicle(mdn)
-            print(f"[DEBUG] 시동 종료 {'성공' if stop_vehicle_result else '실패'} - MDN: {mdn}")
-        else:
-            print(f"[WARNING] 에뮬레이터가 이미 비활성화 상태입니다 - MDN: {mdn}")
-
-        # 에뮬레이터 비활성화
-        print(f"[DEBUG] 에뮬레이터 비활성화 시작 - MDN: {mdn}")
-        success = self.emulator_manager.stop_emulator(mdn)
-
-        if not success:
-            print(f"[ERROR] 에뮬레이터 {mdn} 비활성화 실패")
-            return False
-
-        print(f"[INFO] 에뮬레이터 {mdn} 비활성화 완료")
-
-        # 백엔드 전송 대기 로그 개수 확인
-        pending_logs = self.log_storage_manager.count_pending_logs()
-        total_pending = sum(pending_logs.values())
-        print(f"[DEBUG] 현재 백엔드 전송 대기 로그 개수: 총 {total_pending}개 (GPS: {pending_logs['gps']}, 전원: {pending_logs['power']}, 지오펜스: {pending_logs['geofence']}) - MDN: {mdn}")
-
-        # 미전송 로그 처리 (종료 전에 로그 전송 시도)
-        if total_pending > 0:
-            print(f"[INFO] 종료 전 미전송 로그 처리 시작 - MDN: {mdn}")
-            self.log_storage_manager.process_pending_logs()
-
-            # 처리 후 남은 로그 확인
-            after_pending = self.log_storage_manager.count_pending_logs()
-            after_total = sum(after_pending.values())
-            print(f"[INFO] 종료 전 미전송 로그 처리 완료 - 처리 전: {total_pending}개, 처리 후: {after_total}개")
-
-            if after_total < total_pending:
-                print(f"[SUCCESS] {total_pending - after_total}개의 로그가 성공적으로 전송됨")
-            else:
-                print(f"[WARNING] 모든 로그 전송 실패 또는 새 로그 추가됨")
-
-        return True
 
     #
     # 로그 처리 메서드
@@ -537,6 +513,56 @@ class EmulatorDataGenerator:
         if store:
             self.store_gps_log(mdn, gps_log)
             print(f"[INFO] 차량 {mdn} GPS 로그 저장 완료")
+
+            # GPS 주기정보 전송 종료 후 처리 로직 (이전에 stop_emulator에서 처리하던 로직)
+            print(f"[INFO] GPS 주기정보 전송 종료 후 처리 시작 - MDN: {mdn}")
+
+            # 모든 경로 포인트가 처리되었는지 확인
+            has_route_data = self.emulator_manager.kakao_route_points and len(self.emulator_manager.kakao_route_points) > 0
+            all_points_processed = has_route_data and self.emulator_manager.current_route_index >= len(self.emulator_manager.kakao_route_points)
+
+            # 차량 시동 종료 - 모든 경로 포인트가 처리된 경우에만 수행
+            if all_points_processed and self.emulator_manager.is_emulator_active(mdn):
+                print(f"[DEBUG] 모든 경로 포인트 처리 완료 - 시동 종료 시작 - MDN: {mdn}")
+                stop_vehicle_result = self.stop_vehicle(mdn)
+                print(f"[DEBUG] 시동 종료 {'성공' if stop_vehicle_result else '실패'} - MDN: {mdn}")
+            elif not all_points_processed:
+                print(f"[INFO] 아직 모든 경로 포인트가 처리되지 않았습니다. 시동 종료를 건너뜁니다 - MDN: {mdn}")
+                print(f"[DEBUG] 현재 경로 인덱스: {self.emulator_manager.current_route_index}, 전체 포인트 수: {len(self.emulator_manager.kakao_route_points) if has_route_data else 0}")
+            else:
+                print(f"[WARNING] 에뮬레이터가 이미 비활성화 상태입니다 - MDN: {mdn}")
+
+            # 에뮬레이터 비활성화 - 모든 경로 포인트가 처리된 경우에만 수행
+            if all_points_processed:
+                print(f"[DEBUG] 에뮬레이터 비활성화 시작 - MDN: {mdn}")
+                success = self.emulator_manager.stop_emulator(mdn)
+
+                if not success:
+                    print(f"[ERROR] 에뮬레이터 {mdn} 비활성화 실패")
+                else:
+                    print(f"[INFO] 에뮬레이터 {mdn} 비활성화 완료")
+
+            # 백엔드 전송 대기 로그 개수 확인
+            pending_logs = self.log_storage_manager.count_pending_logs()
+            total_pending = sum(pending_logs.values())
+            print(f"[DEBUG] 현재 백엔드 전송 대기 로그 개수: 총 {total_pending}개 (GPS: {pending_logs['gps']}, 전원: {pending_logs['power']}, 지오펜스: {pending_logs['geofence']}) - MDN: {mdn}")
+
+            # 미전송 로그 처리
+            if total_pending > 0:
+                print(f"[INFO] GPS 주기정보 전송 종료 후 미전송 로그 처리 시작 - MDN: {mdn}")
+                self.log_storage_manager.process_pending_logs()
+
+                # 처리 후 남은 로그 확인
+                after_pending = self.log_storage_manager.count_pending_logs()
+                after_total = sum(after_pending.values())
+                print(f"[INFO] 미전송 로그 처리 완료 - 처리 전: {total_pending}개, 처리 후: {after_total}개")
+
+                if after_total < total_pending:
+                    print(f"[SUCCESS] {total_pending - after_total}개의 로그가 성공적으로 전송됨")
+                else:
+                    print(f"[WARNING] 모든 로그 전송 실패 또는 새 로그 추가됨")
+
+            print(f"[INFO] GPS 주기정보 전송 종료 후 처리 완료 - MDN: {mdn}")
 
         return gps_log
 

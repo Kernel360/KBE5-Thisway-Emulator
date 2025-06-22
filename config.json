@@ -1,4 +1,10 @@
 {
   "backend_url": "http://localhost:8080",
-  "comment": "백엔드 서버 URL을 여기서 설정하세요. 예: http://your-backend-server:8080"
+  "comment": "백엔드 서버 URL을 여기서 설정하세요. 예: http://your-backend-server:8080",
+  "use_kakao_api": true,
+  "kakao_api_key": "c7200b4e3447a6a2fb4a3dff975a76a8",
+  "default_route": {
+    "start_point": [37.498454, 127.03229],
+    "end_point": [37.5087444, 127.0635194]
+  }
 }
