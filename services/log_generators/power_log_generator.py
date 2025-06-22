@@ -73,19 +73,60 @@ class PowerLogGenerator(BaseLogGenerator):
             spd = "0"
         # 시동 OFF 처리
         else:
-            # 최근 위치 정보 사용
-            lat = emulator["last_latitude"]
-            lon = emulator["last_longitude"]
+            # 기본값으로 last_gps_data 초기화
+            last_gps_data = None
+
+            # 현재 수집 중인 데이터가 있으면 마지막 데이터 포인트 사용
+            if hasattr(self.emulator_manager, "collecting_data") and self.emulator_manager.collecting_data and len(self.emulator_manager.collecting_data) > 0:
+                last_gps_data = self.emulator_manager.collecting_data[-1]
+                lat = last_gps_data["latitude"]
+                lon = last_gps_data["longitude"]
+                print(f"[INFO] 시동 OFF 로그에 현재 수집 중인 데이터의 마지막 포인트 위치 사용: ({lat}, {lon})")
+            # 마지막 GPS 주기정보가 있으면 해당 위치 사용
+            elif self.emulator_manager.last_gps_batch_data and "latitude" in self.emulator_manager.last_gps_batch_data and "longitude" in self.emulator_manager.last_gps_batch_data:
+                last_gps_data = self.emulator_manager.last_gps_batch_data
+                lat = last_gps_data["latitude"]
+                lon = last_gps_data["longitude"]
+                print(f"[INFO] 시동 OFF 로그에 마지막 GPS 주기정보 위치 사용: ({lat}, {lon})")
+            else:
+                # 마지막 GPS 주기정보가 없으면 현재 위치 사용
+                lat = emulator["last_latitude"]
+                lon = emulator["last_longitude"]
+                print(f"[INFO] 시동 OFF 로그에 현재 위치 사용: ({lat}, {lon})")
 
             # GPS 상태 결정 (random으로 95% 정상 처리)
             is_gps_normal = random.random() < 0.95
             gps_status = "A" if is_gps_normal else "P"
 
             # 시동 OFF 시 직전 속도 반영
-            spd = str(random.randint(0, 100))  # 현실적인 속도 범위로 조정
+            # 현재 수집 중인 데이터가 있으면 마지막 데이터 포인트의 속도 사용
+            if hasattr(self.emulator_manager, "collecting_data") and self.emulator_manager.collecting_data and len(self.emulator_manager.collecting_data) > 0 and "speed" in self.emulator_manager.collecting_data[-1]:
+                spd = str(int(self.emulator_manager.collecting_data[-1]["speed"]))
+                print(f"[INFO] 시동 OFF 로그에 현재 수집 중인 데이터의 마지막 포인트 속도 사용: {spd}")
+            # 마지막 GPS 주기정보가 있으면 해당 속도 사용
+            elif last_gps_data and "speed" in last_gps_data:
+                spd = str(int(last_gps_data["speed"]))
+                print(f"[INFO] 시동 OFF 로그에 마지막 GPS 주기정보 속도 사용: {spd}")
+            else:
+                spd = str(random.randint(0, 100))  # 현실적인 속도 범위로 조정
+                print(f"[INFO] 시동 OFF 로그에 랜덤 속도 사용: {spd}")
 
         # 방향각 (규격: 0~365)
-        ang = str(random.randint(0, 365))
+        if not power_on:
+            # 현재 수집 중인 데이터가 있으면 마지막 데이터 포인트의 방향각 사용
+            if hasattr(self.emulator_manager, "collecting_data") and self.emulator_manager.collecting_data and len(self.emulator_manager.collecting_data) > 0 and "angle" in self.emulator_manager.collecting_data[-1]:
+                ang = str(int(self.emulator_manager.collecting_data[-1]["angle"]))
+                print(f"[INFO] 시동 OFF 로그에 현재 수집 중인 데이터의 마지막 포인트 방향각 사용: {ang}")
+            # 마지막 GPS 주기정보가 있으면 해당 방향각 사용
+            elif self.emulator_manager.last_gps_batch_data and "angle" in self.emulator_manager.last_gps_batch_data:
+                ang = str(int(self.emulator_manager.last_gps_batch_data["angle"]))
+                print(f"[INFO] 시동 OFF 로그에 마지막 GPS 주기정보 방향각 사용: {ang}")
+            else:
+                ang = str(random.randint(0, 365))
+                print(f"[INFO] 시동 OFF 로그에 랜덤 방향각 사용: {ang}")
+        else:
+            ang = str(random.randint(0, 365))
+            print(f"[INFO] 시동 ON 로그에 랜덤 방향각 사용: {ang}")
 
         # 시동 ON/OFF 시간 처리
         on_time = ""
