@@ -43,6 +43,9 @@ class EmulatorManager:
             "timestamp": datetime.now()
         }
 
+        # 마지막 GPS 주기정보 데이터 포인트 저장
+        self.last_gps_batch_data = None
+
         # 실시간 데이터 수집을 위한 타이머 스레드 관리
         self.data_timer = None
         self.collecting_data = []
@@ -66,6 +69,10 @@ class EmulatorManager:
                 "timestamp": datetime.now()
             }
         }
+
+        # 카카오 API 경로 데이터 저장
+        self.kakao_route_points = []  # 카카오 API에서 가져온 경로 포인트 목록
+        self.current_route_index = 0  # 현재 사용 중인 경로 포인트 인덱스
 
     def start_emulator(self, terminal_id: str = None, manufacture_id: int = None, 
                         packet_version: int = None, device_id: int = None, device_firmware_version: str = None) -> bool:
@@ -241,11 +248,24 @@ class EmulatorManager:
 
         if self.data_timer and self.stop_event:
             self.stop_event.set()
-            self.data_timer.join(timeout=2.0)
+
+            # 현재 스레드가 data_timer 스레드인지 확인
+            current_thread = threading.current_thread()
+            if current_thread != self.data_timer:
+                # 다른 스레드에서 호출된 경우에만 join 시도
+                self.data_timer.join(timeout=2.0)
+            else:
+                print(f"[INFO] 데이터 수집 스레드 내에서 중지 요청됨 - join 건너뜀")
+
             self.data_timer = None
 
             # 남은 데이터 처리
             if self.collecting_data and self.data_callback and callable(self.data_callback):
+                # 마지막 데이터 포인트 저장 (추가된 코드)
+                if self.collecting_data:
+                    self.last_gps_batch_data = self.collecting_data[-1]
+                    print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
+
                 self.data_callback(self.mdn, self.collecting_data)
                 self.collecting_data = []
 
@@ -254,29 +274,202 @@ class EmulatorManager:
 
     def update_position(self):
         """
-        에뮬레이터 위치 랜덤 업데이트
+        에뮬레이터 위치 업데이트 (카카오 API 경로 데이터 사용)
         """
-        if self.is_active:
-            # 현재 좌표값 확인
-            # 좌표가 비정상적으로 작은 경우 (서울 좌표로 초기화)
-            if abs(self.last_latitude) < 1.0:  # 위도가 1도보다 작으면 비정상으로 판단
-                self.last_latitude = 37.5665
-                self.last_longitude = 126.9780
-                print(f"위치 초기화: {self.mdn} - 서울 좌표로 재설정 (37.5665, 126.9780)")
+        print(f"[DEBUG] 위치 업데이트 시작 - MDN: {self.mdn}, 활성 상태: {self.is_active}")
 
-            # 위치 랜덤 업데이트 (더 큰 변화를 주도록 값 증가)
-            self.last_latitude += random.uniform(-0.001, 0.001)
-            self.last_longitude += random.uniform(-0.001, 0.001)
+        if not self.is_active:
+            print(f"[DEBUG] 에뮬레이터가 비활성 상태입니다. 위치 업데이트를 건너뜁니다 - MDN: {self.mdn}")
+            return
 
-            # 이전 버전과의 호환성을 위한 active_emulators 업데이트
-            self.active_emulators = {self.mdn: self.get_emulator_dict()}
+        # 현재 좌표값 확인
+        print(f"[DEBUG] 현재 좌표: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
 
-            # 마지막 위치 정보 업데이트
-            self.last_positions[self.mdn] = {
-                "latitude": self.last_latitude,
-                "longitude": self.last_longitude,
-                "timestamp": datetime.now()
-            }
+        # 좌표가 비정상적으로 작은 경우 (서울 좌표로 초기화)
+        if abs(self.last_latitude) < 1.0:  # 위도가 1도보다 작으면 비정상으로 판단
+            print(f"[WARNING] 비정상 좌표 감지: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
+            self.last_latitude = 37.5665
+            self.last_longitude = 126.9780
+            print(f"[INFO] 위치 초기화: {self.mdn} - 서울 좌표로 재설정 (37.5665, 126.9780)")
+
+        # 카카오 API 경로 데이터 확인
+        has_route_data = self.kakao_route_points and len(self.kakao_route_points) > 0
+        print(f"[DEBUG] 카카오 API 경로 데이터 상태: {'있음' if has_route_data else '없음'}, 포인트 수: {len(self.kakao_route_points) if has_route_data else 0} - MDN: {self.mdn}")
+
+        # 카카오 API 경로 데이터가 있는 경우 해당 데이터 사용
+        if has_route_data:
+            # 현재 인덱스 확인
+            print(f"[DEBUG] 현재 경로 인덱스: {self.current_route_index}, 전체 포인트 수: {len(self.kakao_route_points)} - MDN: {self.mdn}")
+
+            # 현재 인덱스가 유효한지 확인
+            if self.current_route_index < len(self.kakao_route_points):
+                # 현재 경로 포인트 가져오기
+                current_point = self.kakao_route_points[self.current_route_index]
+                print(f"[DEBUG] 현재 경로 포인트: {current_point} - MDN: {self.mdn}")
+
+                # 이전 위치 저장 (디버깅용)
+                prev_lat = self.last_latitude
+                prev_lon = self.last_longitude
+
+                # 위치 업데이트
+                self.last_latitude = current_point["latitude"]
+                self.last_longitude = current_point["longitude"]
+                print(f"[DEBUG] 위치 업데이트 - 이전: ({prev_lat}, {prev_lon}), 새 위치: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
+
+                # 다음 포인트로 인덱스 이동
+                self.current_route_index += 1
+                print(f"[DEBUG] 다음 경로 인덱스로 이동: {self.current_route_index} - MDN: {self.mdn}")
+
+                # 모든 경로 포인트를 사용한 경우 에뮬레이터 중지 및 프로그램 종료
+                if self.current_route_index >= len(self.kakao_route_points):
+                    print(f"[INFO] 모든 경로 포인트를 사용했습니다. 에뮬레이터를 중지합니다 - MDN: {self.mdn}")
+
+                    # 남은 데이터 처리 (에뮬레이터 중지 전에 수행)
+                    if self.collecting_data and self.data_callback and callable(self.data_callback):
+                        # 마지막 데이터 포인트 저장 (추가된 코드)
+                        if self.collecting_data:
+                            self.last_gps_batch_data = self.collecting_data[-1]
+                            print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
+
+                        print(f"[INFO] 남은 데이터 처리 중 - {len(self.collecting_data)}개 데이터 포인트 - MDN: {self.mdn}")
+                        self.data_callback(self.mdn, self.collecting_data)
+                        self.collecting_data = []
+
+                    # 로그 전송을 위한 대기 시간 추가
+                    print(f"[INFO] 목적지에 도달했습니다. 로그 전송을 위해 잠시 대기합니다 - MDN: {self.mdn}")
+                    import time
+                    time.sleep(2)  # 2초 대기
+
+                    # 미전송 로그 처리
+                    from services.data_generator import data_generator
+                    pending_logs = data_generator.log_storage_manager.count_pending_logs()
+                    total_pending = sum(pending_logs.values())
+                    if total_pending > 0:
+                        print(f"[INFO] 종료 전 미전송 로그 처리 시작 - MDN: {self.mdn}")
+                        data_generator.log_storage_manager.process_pending_logs()
+
+                    # GPS 로그 전송 후 시동 OFF 로그 생성 및 전송
+                    print(f"[INFO] GPS 로그 전송 완료. 시동 OFF 로그 생성 및 전송 시작 - MDN: {self.mdn}")
+                    data_generator.stop_vehicle(self.mdn)
+
+                    # 시동 OFF 로그 전송을 위한 추가 대기
+                    print(f"[INFO] 시동 OFF 로그 전송을 위해 잠시 대기합니다 - MDN: {self.mdn}")
+                    import time
+                    time.sleep(1)  # 1초 대기
+
+                    # 시동 OFF 로그 전송 확인
+                    pending_logs = data_generator.log_storage_manager.count_pending_logs()
+                    power_pending = pending_logs.get('power', 0)
+                    if power_pending > 0:
+                        print(f"[INFO] 시동 OFF 로그 전송 시도 중 - 대기 중인 전원 로그: {power_pending}개")
+                        data_generator.log_storage_manager.process_pending_logs()
+
+                    # 에뮬레이터 비활성화
+                    self.is_active = False
+                    if self.stop_event:
+                        self.stop_event.set()
+
+                    # 에뮬레이터 중지 (스레드 안전하게)
+                    self.stop_emulator()
+
+                    print(f"[INFO] 목적지에 도달했습니다. 프로그램을 종료합니다 - MDN: {self.mdn}")
+
+                    # 종료 처리를 위한 함수 정의
+                    def cleanup_and_exit():
+                        print(f"[INFO] 프로그램 종료 전 정리 작업 수행 중...")
+                        # 여기에 필요한 정리 작업 코드 추가 가능
+
+                    # 정리 함수 등록 (이미 등록되어 있다면 다시 등록할 필요 없음)
+                    import atexit
+                    atexit.register(cleanup_and_exit)
+
+                    # 프로그램 종료 - 자동으로 등록된 모든 atexit 핸들러가 호출됨
+                    import sys
+                    sys.exit(0)
+            else:
+                # 인덱스가 범위를 벗어난 경우 에뮬레이터 중지 및 프로그램 종료
+                print(f"[WARNING] 경로 인덱스가 범위를 벗어났습니다: {self.current_route_index} >= {len(self.kakao_route_points)} - MDN: {self.mdn}")
+                print(f"[INFO] 모든 경로 포인트를 사용했습니다. 에뮬레이터를 중지합니다 - MDN: {self.mdn}")
+
+                # 남은 데이터 처리 (에뮬레이터 중지 전에 수행)
+                if self.collecting_data and self.data_callback and callable(self.data_callback):
+                    # 마지막 데이터 포인트 저장 (추가된 코드)
+                    if self.collecting_data:
+                        self.last_gps_batch_data = self.collecting_data[-1]
+                        print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
+
+                    print(f"[INFO] 남은 데이터 처리 중 - {len(self.collecting_data)}개 데이터 포인트 - MDN: {self.mdn}")
+                    self.data_callback(self.mdn, self.collecting_data)
+                    self.collecting_data = []
+
+                # 로그 전송을 위한 대기 시간 추가
+                print(f"[INFO] 목적지에 도달했습니다. 로그 전송을 위해 잠시 대기합니다 - MDN: {self.mdn}")
+                import time
+                time.sleep(2)  # 2초 대기
+
+                # 미전송 로그 처리
+                from services.data_generator import data_generator
+                pending_logs = data_generator.log_storage_manager.count_pending_logs()
+                total_pending = sum(pending_logs.values())
+                if total_pending > 0:
+                    print(f"[INFO] 종료 전 미전송 로그 처리 시작 - MDN: {self.mdn}")
+                    data_generator.log_storage_manager.process_pending_logs()
+
+                # GPS 로그 전송 후 시동 OFF 로그 생성 및 전송
+                print(f"[INFO] GPS 로그 전송 완료. 시동 OFF 로그 생성 및 전송 시작 - MDN: {self.mdn}")
+                data_generator.stop_vehicle(self.mdn)
+
+                # 시동 OFF 로그 전송을 위한 추가 대기
+                print(f"[INFO] 시동 OFF 로그 전송을 위해 잠시 대기합니다 - MDN: {self.mdn}")
+                import time
+                time.sleep(1)  # 1초 대기
+
+                # 시동 OFF 로그 전송 확인
+                pending_logs = data_generator.log_storage_manager.count_pending_logs()
+                power_pending = pending_logs.get('power', 0)
+                if power_pending > 0:
+                    print(f"[INFO] 시동 OFF 로그 전송 시도 중 - 대기 중인 전원 로그: {power_pending}개")
+                    data_generator.log_storage_manager.process_pending_logs()
+
+                # 에뮬레이터 비활성화
+                self.is_active = False
+                if self.stop_event:
+                    self.stop_event.set()
+
+                # 에뮬레이터 중지 (스레드 안전하게)
+                self.stop_emulator()
+
+                print(f"[INFO] 목적지에 도달했습니다. 프로그램을 종료합니다 - MDN: {self.mdn}")
+
+                # 종료 처리를 위한 함수 정의
+                def cleanup_and_exit():
+                    print(f"[INFO] 프로그램 종료 전 정리 작업 수행 중...")
+                    # 여기에 필요한 정리 작업 코드 추가 가능
+
+                # 정리 함수 등록 (이미 등록되어 있다면 다시 등록할 필요 없음)
+                import atexit
+                atexit.register(cleanup_and_exit)
+
+                # 프로그램 종료 - 자동으로 등록된 모든 atexit 핸들러가 호출됨
+                import sys
+                sys.exit(0)
+        else:
+            # 카카오 API 경로 데이터가 없는 경우 오류 메시지 출력
+            print(f"[WARNING] 카카오 API 경로 데이터가 없습니다. 위치 업데이트를 건너뜁니다 - MDN: {self.mdn}")
+            # 위치는 변경하지 않음
+            print(f"[DEBUG] 위치 유지: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
+
+        # 이전 버전과의 호환성을 위한 active_emulators 업데이트
+        self.active_emulators = {self.mdn: self.get_emulator_dict()}
+        print(f"[DEBUG] active_emulators 업데이트 완료 - MDN: {self.mdn}")
+
+        # 마지막 위치 정보 업데이트
+        self.last_positions[self.mdn] = {
+            "latitude": self.last_latitude,
+            "longitude": self.last_longitude,
+            "timestamp": datetime.now()
+        }
+        print(f"[DEBUG] 마지막 위치 정보 업데이트 완료 - MDN: {self.mdn}, 좌표: ({self.last_latitude}, {self.last_longitude})")
 
     def _data_collection_worker(self, interval_sec: float, batch_size: int, stop_event: threading.Event):
         """
@@ -371,6 +564,11 @@ class EmulatorManager:
 
                 # 배치 크기에 도달하면 콜백 함수 호출
                 if count >= batch_size and self.data_callback and callable(self.data_callback):
+                    # 마지막 데이터 포인트 저장
+                    if self.collecting_data:
+                        self.last_gps_batch_data = self.collecting_data[-1]
+                        print(f"[DEBUG] 마지막 GPS 주기정보 데이터 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
+
                     self.data_callback(self.mdn, self.collecting_data)
                     self.collecting_data = []
                     count = 0
@@ -386,16 +584,10 @@ class EmulatorManager:
             return None
 
         if self.is_active:
-            # 위치 약간 변경 (실시간 업데이트 시뮬레이션)
-            self.last_latitude += random.uniform(-0.0001, 0.0001)
-            self.last_longitude += random.uniform(-0.0001, 0.0001)
+            # 카카오 API 경로 데이터를 사용하여 위치 업데이트
+            self.update_position()
 
-            # 마지막 위치 정보 업데이트
-            self.last_positions[self.mdn] = {
-                "latitude": self.last_latitude,
-                "longitude": self.last_longitude,
-                "timestamp": datetime.now()
-            }
+            # 마지막 위치 정보는 update_position 메서드에서 업데이트됨
 
         return VehicleData(
             mdn=self.mdn,
@@ -586,3 +778,63 @@ class EmulatorManager:
             "heading": heading,
             "accumulated_distance": accumulated_distance
         }
+
+    def set_kakao_route_data(self, route_points: List[Dict]) -> bool:
+        """
+        카카오 API 경로 데이터 설정
+
+        Args:
+            route_points: 경로 포인트 목록 [{"latitude": float, "longitude": float}, ...]
+
+        Returns:
+            bool: 성공 여부
+        """
+        print(f"[DEBUG] 카카오 API 경로 데이터 설정 시작 - MDN: {self.mdn}, 포인트 수: {len(route_points) if route_points else 0}")
+
+        if not route_points:
+            print(f"[ERROR] 경로 포인트가 없습니다 - MDN: {self.mdn}")
+            return False
+
+        # 경로 데이터 유효성 검사
+        valid_points = True
+        for i, point in enumerate(route_points[:5]):  # 처음 5개 포인트만 로깅
+            if "latitude" not in point or "longitude" not in point:
+                print(f"[ERROR] 유효하지 않은 경로 포인트 형식 - 인덱스: {i}, 포인트: {point}")
+                valid_points = False
+                break
+
+        if not valid_points:
+            print(f"[ERROR] 유효하지 않은 경로 포인트가 포함되어 있습니다 - MDN: {self.mdn}")
+            return False
+
+        # 경로 데이터 설정
+        print(f"[DEBUG] 경로 데이터 설정 중 - 이전 포인트 수: {len(self.kakao_route_points) if self.kakao_route_points else 0}, 새 포인트 수: {len(route_points)}")
+        self.kakao_route_points = route_points
+        self.current_route_index = 0
+        print(f"[DEBUG] 경로 데이터 설정 완료 - 현재 인덱스: {self.current_route_index}")
+
+        # 첫 번째 포인트로 위치 초기화
+        if len(route_points) > 0:
+            first_point = route_points[0]
+            print(f"[DEBUG] 첫 번째 포인트로 위치 초기화 - 좌표: ({first_point['latitude']}, {first_point['longitude']})")
+
+            # 이전 위치 저장 (디버깅용)
+            prev_lat = self.last_latitude
+            prev_lon = self.last_longitude
+
+            # 새 위치 설정
+            self.last_latitude = first_point["latitude"]
+            self.last_longitude = first_point["longitude"]
+
+            print(f"[DEBUG] 위치 업데이트 - 이전: ({prev_lat}, {prev_lon}), 새 위치: ({self.last_latitude}, {self.last_longitude})")
+
+            # 마지막 위치 정보 업데이트
+            self.last_positions[self.mdn] = {
+                "latitude": self.last_latitude,
+                "longitude": self.last_longitude,
+                "timestamp": datetime.now()
+            }
+            print(f"[DEBUG] 마지막 위치 정보 업데이트 완료 - MDN: {self.mdn}")
+
+        print(f"[INFO] 카카오 API 경로 데이터 설정 완료: {len(route_points)}개 포인트 - MDN: {self.mdn}")
+        return True
