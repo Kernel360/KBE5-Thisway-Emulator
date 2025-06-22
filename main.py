@@ -26,7 +26,12 @@ class EmulatorCLI:
         """에뮬레이터 시작"""
         # 이미 실행 중인 에뮬레이터가 있으면 중지
         if self.current_mdn:
-            self.stop_emulator()
+            print(f"이미 실행 중인 에뮬레이터 {self.current_mdn}를 중지합니다.")
+            print("에뮬레이터는 GPS 주기정보 전송 종료 시 자동으로 중지됩니다.")
+            # 테스트 목적으로 에뮬레이터 상태 직접 변경
+            data_generator.emulator_manager.is_active = False
+            # 현재 MDN 초기화
+            self.current_mdn = None
 
         success = data_generator.start_emulator(
             mdn, terminal_id, manufacture_id, packet_version, 
@@ -41,26 +46,6 @@ class EmulatorCLI:
             print(f"MDN: {mdn}로 에뮬레이터 시작에 실패했습니다")
             return False
 
-    def stop_emulator(self, mdn: str = None):
-        """에뮬레이터 중지"""
-        # mdn이 제공되지 않으면 현재 MDN 사용
-        if mdn is None:
-            mdn = self.current_mdn
-
-        if not mdn:
-            print("중지할 활성 에뮬레이터가 없습니다")
-            return False
-
-        success = data_generator.stop_emulator(mdn)
-
-        if success:
-            if mdn == self.current_mdn:
-                self.current_mdn = None
-            print(f"MDN: {mdn} 에뮬레이터를 중지했습니다")
-            return True
-        else:
-            print(f"MDN: {mdn} 에뮬레이터 중지에 실패했습니다")
-            return False
 
     def generate_gps_log(self, mdn: str = None, realtime: bool = False, store: bool = True):
         """GPS 로그 데이터 생성"""
@@ -87,6 +72,14 @@ class EmulatorCLI:
             if data_generator.emulator_manager.data_timer:
                 print("실시간 데이터 수집이 이미 활성화되어 있습니다")
                 return True
+
+            # 먼저 카카오 API에서 경로 데이터를 가져와 설정 (추가된 부분)
+            print("[INFO] 실시간 데이터 수집 전 카카오 API 경로 데이터 설정 중...")
+            gps_log = data_generator.generate_gps_log(mdn, generate_full=True)
+            if gps_log:
+                print(f"[INFO] 카카오 API 경로 데이터 설정 성공 - {len(gps_log.cList)}개 포인트")
+            else:
+                print("[WARNING] 카카오 API 경로 데이터 설정 실패 - 실시간 위치 업데이트가 제한될 수 있습니다")
 
             # 실시간 데이터 수집 시작
             data_generator.emulator_manager.start_realtime_data_collection(
@@ -185,7 +178,15 @@ class EmulatorCLI:
 
                 elif command == "stop":
                     # 현재 실행 중인 에뮬레이터 중지
-                    self.stop_emulator()
+                    if self.current_mdn:
+                        print(f"에뮬레이터 {self.current_mdn}를 중지합니다.")
+                        print("에뮬레이터는 GPS 주기정보 전송 종료 시 자동으로 중지됩니다.")
+                        # 테스트 목적으로 에뮬레이터 상태 직접 변경
+                        data_generator.emulator_manager.is_active = False
+                        # 현재 MDN 초기화
+                        self.current_mdn = None
+                    else:
+                        print("중지할 활성 에뮬레이터가 없습니다")
 
                 elif command == "generate":
                     # 현재 에뮬레이터에 대한 GPS 로그 생성
@@ -222,7 +223,7 @@ class EmulatorCLI:
         """도움말 정보 출력"""
         print("사용 가능한 명령어:")
         print("  start <mdn>                - 지정된 MDN으로 에뮬레이터 시작 및 자동 실행")
-        print("  stop                       - 현재 에뮬레이터 중지")
+        print("  stop                       - 현재 에뮬레이터 중지 (참고: 실제 중지는 GPS 주기정보 전송 종료 시 자동으로 처리됨)")
         print("  generate                   - GPS 로그 데이터 생성")
         print("  generate realtime          - 실시간 GPS 데이터 수집 시작")
         print("  generate nostore           - 저장하지 않고 GPS 로그 데이터 생성")
@@ -247,7 +248,7 @@ def parse_arguments():
     start_emulator_parser.add_argument("mdn", help="모바일 기기 번호")
 
     # 에뮬레이터 중지 명령어
-    subparsers.add_parser("stop", help="에뮬레이터 중지")
+    subparsers.add_parser("stop", help="에뮬레이터 중지 (참고: 실제 중지는 GPS 주기정보 전송 종료 시 자동으로 처리됨)")
 
     # GPS 로그 생성 명령어
     generate_parser = subparsers.add_parser("generate", help="GPS 로그 데이터 생성")
@@ -301,8 +302,14 @@ def main():
                     time.sleep(1)
             except KeyboardInterrupt:
                 print("\n[INFO] 사용자에 의해 프로그램이 중단되었습니다.")
-                # 에뮬레이터 중지
-                cli.stop_emulator(args.mdn)
+                # 에뮬레이터 중지 (이전에는 cli.stop_emulator(args.mdn)를 호출했지만 이제는 직접 처리)
+                print(f"에뮬레이터 {args.mdn}를 중지합니다.")
+                print("에뮬레이터는 GPS 주기정보 전송 종료 시 자동으로 중지됩니다.")
+                # 테스트 목적으로 에뮬레이터 상태 직접 변경
+                data_generator.emulator_manager.is_active = False
+                # CLI의 현재 MDN 초기화
+                if cli.current_mdn == args.mdn:
+                    cli.current_mdn = None
         else:
             print(f"[경고] 에뮬레이터 자동 시작 실패 - MDN: {args.mdn}")
 
@@ -310,7 +317,16 @@ def main():
         cli.start_emulator(args.mdn)
 
     elif args.command == "stop":
-        cli.stop_emulator()
+        # 이전에는 cli.stop_emulator()를 호출했지만 이제는 직접 처리
+        if cli.current_mdn:
+            print(f"에뮬레이터 {cli.current_mdn}를 중지합니다.")
+            print("에뮬레이터는 GPS 주기정보 전송 종료 시 자동으로 중지됩니다.")
+            # 테스트 목적으로 에뮬레이터 상태 직접 변경
+            data_generator.emulator_manager.is_active = False
+            # 현재 MDN 초기화
+            cli.current_mdn = None
+        else:
+            print("중지할 활성 에뮬레이터가 없습니다")
 
     elif args.command == "generate":
         cli.generate_gps_log(realtime=args.realtime, store=args.store)
