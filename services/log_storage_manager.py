@@ -56,6 +56,37 @@ def get_backend_url():
     return backend_url
 
 
+def get_data_collection_config():
+    """
+    데이터 수집 설정 가져오기
+
+    Returns:
+        tuple: (interval_sec, batch_size, send_interval_sec)
+    """
+    # 기본값
+    default_interval_sec = 1.0
+    default_batch_size = 60
+    default_send_interval_sec = 60.0  # 기본값은 60초
+
+    try:
+        # 설정 파일이 있는지 확인
+        if os.path.exists("config.json"):
+            with open("config.json", "r") as f:
+                config = json.load(f)
+                data_collection = config.get("data_collection", {})
+                interval_sec = data_collection.get("interval_sec", default_interval_sec)
+                batch_size = data_collection.get("batch_size", default_batch_size)
+                send_interval_sec = data_collection.get("send_interval_sec", default_send_interval_sec)
+                print(f"[INFO] config.json에서 데이터 수집 설정 로드: interval_sec={interval_sec}, batch_size={batch_size}, send_interval_sec={send_interval_sec}")
+                return interval_sec, batch_size, send_interval_sec
+    except Exception as e:
+        print(f"[경고] 설정 파일 읽기 실패: {str(e)}")
+
+    # 기본값 사용
+    print(f"[INFO] 기본 데이터 수집 설정 사용: interval_sec={default_interval_sec}, batch_size={default_batch_size}, send_interval_sec={default_send_interval_sec}")
+    return default_interval_sec, default_batch_size, default_send_interval_sec
+
+
 class LogStorageManager:
     """
     미전송 로그 데이터 저장, 관리 및 전송 담당 클래스

@@ -4,7 +4,7 @@ import sys
 
 # 기존 서비스 가져오기
 from services.data_generator import EmulatorDataGenerator
-from services.log_storage_manager import LogStorageManager
+from services.log_storage_manager import LogStorageManager, get_data_collection_config
 
 # 데이터 생성기의 싱글톤 인스턴스 생성
 data_generator = EmulatorDataGenerator()
@@ -81,14 +81,18 @@ class EmulatorCLI:
             else:
                 print("[WARNING] 카카오 API 경로 데이터 설정 실패 - 실시간 위치 업데이트가 제한될 수 있습니다")
 
+            # 설정 파일에서 데이터 수집 설정 가져오기
+            interval_sec, batch_size, send_interval_sec = get_data_collection_config()
+
             # 실시간 데이터 수집 시작
             data_generator.emulator_manager.start_realtime_data_collection(
                 callback=data_generator._process_collected_data,
-                interval_sec=1.0,
-                batch_size=60
+                interval_sec=interval_sec,
+                batch_size=batch_size,
+                send_interval_sec=send_interval_sec
             )
 
-            print("실시간 데이터 수집을 시작했습니다. 로그는 60초마다 생성됩니다.")
+            print(f"실시간 데이터 수집을 시작했습니다. 데이터는 {interval_sec}초마다 수집되며, {send_interval_sec}초마다 전송됩니다.")
             return True
         else:
             # 60초 데이터가 포함된 단일 GPS 로그 생성
