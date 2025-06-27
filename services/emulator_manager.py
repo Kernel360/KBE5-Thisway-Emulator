@@ -180,7 +180,8 @@ class EmulatorManager:
 
         return True
 
-    def start_realtime_data_collection(self, mdn: str = None, callback: Callable[[str, list], None] = None, interval_sec: float = 1.0, batch_size: int = 60):
+    def start_realtime_data_collection(self, mdn: str = None, callback: Callable[[str, list], None] = None, 
+                                  interval_sec: float = 1.0, batch_size: int = 60, send_interval_sec: float = 60.0):
         """
         실시간 GPS 데이터 생성 시작
 
@@ -189,6 +190,7 @@ class EmulatorManager:
             callback: 배치가 채워졌을 때 호출될 함수 (mdn, data_list)
             interval_sec: 데이터 생성 간격 (초)
             batch_size: 데이터 수집 배치 크기
+            send_interval_sec: 데이터 전송 주기 (초)
         """
         # MDN이 지정되지 않은 경우 현재 에뮬레이터의 MDN 사용
         if mdn is None:
@@ -211,7 +213,7 @@ class EmulatorManager:
             self.stop_event = threading.Event()
             self.data_timer = threading.Thread(
                 target=self._data_collection_worker,
-                args=(interval_sec, batch_size, self.stop_event),
+                args=(interval_sec, batch_size, send_interval_sec, self.stop_event),
                 daemon=True
             )
 
@@ -471,13 +473,14 @@ class EmulatorManager:
         }
         print(f"[DEBUG] 마지막 위치 정보 업데이트 완료 - MDN: {self.mdn}, 좌표: ({self.last_latitude}, {self.last_longitude})")
 
-    def _data_collection_worker(self, interval_sec: float, batch_size: int, stop_event: threading.Event):
+    def _data_collection_worker(self, interval_sec: float, batch_size: int, send_interval_sec: float, stop_event: threading.Event):
         """
         실시간 데이터 생성 스레드 작업
 
         Args:
             interval_sec: 데이터 생성 간격 (초)
             batch_size: 데이터 수집 배치 크기
+            send_interval_sec: 데이터 전송 주기 (초)
             stop_event: 중지 신호를 받기 위한 이벤트
         """
         count = 0
@@ -486,6 +489,7 @@ class EmulatorManager:
         prev_time = datetime.now()
         prev_speed = 0.0
         prev_angle = 0.0
+        last_send_time = datetime.now()
 
         while not stop_event.is_set():
             # 에뮬레이터가 활성화 상태인 경우만 데이터 생성
@@ -562,8 +566,9 @@ class EmulatorManager:
                 prev_speed = speed
                 prev_angle = angle
 
-                # 배치 크기에 도달하면 콜백 함수 호출
-                if count >= batch_size and self.data_callback and callable(self.data_callback):
+                # 전송 주기에 도달하거나 배치 크기에 도달하면 콜백 함수 호출
+                time_since_last_send = (current_time - last_send_time).total_seconds()
+                if ((time_since_last_send >= send_interval_sec) or (count >= batch_size)) and self.data_callback and callable(self.data_callback):
                     # 마지막 데이터 포인트 저장
                     if self.collecting_data:
                         self.last_gps_batch_data = self.collecting_data[-1]
@@ -572,6 +577,7 @@ class EmulatorManager:
                     self.data_callback(self.mdn, self.collecting_data)
                     self.collecting_data = []
                     count = 0
+                    last_send_time = current_time
 
             # 다음 생성 시기까지 대기
             time.sleep(interval_sec)
