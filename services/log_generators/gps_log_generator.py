@@ -99,7 +99,7 @@ class GpsLogGenerator(BaseLogGenerator):
             return None
 
         current_time = datetime.now()
-        time_str = current_time.strftime("%Y%m%d%H%M")
+        time_str = current_time.strftime("%Y%m%d%H%M%S")
 
         # 디버깅 정보 출력
         print(f"[DEBUG] 수집된 데이터 첫 항목 키: {list(collected_data[0].keys()) if collected_data else 'None'}")
@@ -183,8 +183,12 @@ class GpsLogGenerator(BaseLogGenerator):
             lat_value = round(data.get("latitude", 0), 6)
             lon_value = round(data.get("longitude", 0), 6)
 
+            # 타임스탬프에서 초 정보 추출
+            timestamp = data.get("timestamp")
+            seconds = timestamp.second if timestamp else i
+
             log_item = GpsLogItem(
-                sec=str(i),
+                sec=str(seconds),
                 gcd="A",  # 기본값 A (정상)
                 lat=str(int(lat_value * 1000000)),  # 소수점 6자리로 제한하고 1,000,000 곱하기
                 lon=str(int(lon_value * 1000000)),  # 소수점 6자리로 제한하고 1,000,000 곱하기
