@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 
 class GpsLogItem(BaseModel):
+    min: str = Field(..., description="분 단위 시간")
     sec: str = Field(..., description="초 단위 시간")
     gcd: str = Field(..., description="GPS 좌표계 코드")
     lat: str = Field(..., description="위도")
