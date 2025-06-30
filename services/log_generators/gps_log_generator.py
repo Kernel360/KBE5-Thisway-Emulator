@@ -183,11 +183,13 @@ class GpsLogGenerator(BaseLogGenerator):
             lat_value = round(data.get("latitude", 0), 6)
             lon_value = round(data.get("longitude", 0), 6)
 
-            # 타임스탬프에서 초 정보 추출
+            # 타임스탬프에서 분, 초 정보 추출
             timestamp = data.get("timestamp")
+            minutes = timestamp.minute if timestamp else 0
             seconds = timestamp.second if timestamp else i
 
             log_item = GpsLogItem(
+                min=str(minutes),
                 sec=str(seconds),
                 gcd="A",  # 기본값 A (정상)
                 lat=str(int(lat_value * 1000000)),  # 소수점 6자리로 제한하고 1,000,000 곱하기
