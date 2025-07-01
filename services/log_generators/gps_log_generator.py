@@ -36,7 +36,10 @@ class GpsLogGenerator(BaseLogGenerator):
         # 설정 파일에서 카카오 API 사용 여부 및 기본 경로 정보 가져오기
         try:
             import json
-            with open('config.json', 'r') as f:
+            import os
+            # 환경 변수에서 설정 파일 경로 확인
+            config_path = os.environ.get("CONFIG_PATH", "config.json")
+            with open(config_path, 'r') as f:
                 config = json.load(f)
                 use_kakao_api = config.get("use_kakao_api", False)
                 default_route = config.get("default_route", {})
@@ -280,7 +283,10 @@ class GpsLogGenerator(BaseLogGenerator):
 
         # API 키는 환경 변수나 설정 파일에서 가져오는 것이 좋습니다
         try:
-            with open('config.json', 'r') as f:
+            import os
+            # 환경 변수에서 설정 파일 경로 확인
+            config_path = os.environ.get("CONFIG_PATH", "config.json")
+            with open(config_path, 'r') as f:
                 config = json.load(f)
                 api_key = config.get("kakao_api_key", "")
         except Exception as e:
