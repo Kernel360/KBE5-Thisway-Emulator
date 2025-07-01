@@ -19,9 +19,10 @@ def get_backend_url():
     """
     백엔드 URL 설정 가져오기
 
-    1. config.json 파일 확인
-    2. 환경 변수 BACKEND_URL 확인
-    3. 기본값 사용
+    1. 환경 변수 CONFIG_PATH에 지정된 설정 파일 확인
+    2. config.json 파일 확인
+    3. 환경 변수 BACKEND_URL 확인
+    4. 기본값 사용
 
     Returns:
         str: 백엔드 URL
@@ -32,13 +33,15 @@ def get_backend_url():
     # 1. 설정 파일에서 백엔드 URL 확인
     backend_url = None
     try:
+        # 환경 변수에서 설정 파일 경로 확인
+        config_path = os.environ.get("CONFIG_PATH", "config.json")
         # 설정 파일이 있는지 확인
-        if os.path.exists("config.json"):
-            with open("config.json", "r") as f:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
                 config = json.load(f)
                 if "backend_url" in config:
                     backend_url = config["backend_url"]
-                    print(f"[INFO] config.json에서 백엔드 URL 설정 로드: {backend_url}")
+                    print(f"[INFO] {config_path}에서 백엔드 URL 설정 로드: {backend_url}")
     except Exception as e:
         print(f"[경고] 설정 파일 읽기 실패: {str(e)}")
 
@@ -69,15 +72,17 @@ def get_data_collection_config():
     default_send_interval_sec = 60.0  # 기본값은 60초
 
     try:
+        # 환경 변수에서 설정 파일 경로 확인
+        config_path = os.environ.get("CONFIG_PATH", "config.json")
         # 설정 파일이 있는지 확인
-        if os.path.exists("config.json"):
-            with open("config.json", "r") as f:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
                 config = json.load(f)
                 data_collection = config.get("data_collection", {})
                 interval_sec = data_collection.get("interval_sec", default_interval_sec)
                 batch_size = data_collection.get("batch_size", default_batch_size)
                 send_interval_sec = data_collection.get("send_interval_sec", default_send_interval_sec)
-                print(f"[INFO] config.json에서 데이터 수집 설정 로드: interval_sec={interval_sec}, batch_size={batch_size}, send_interval_sec={send_interval_sec}")
+                print(f"[INFO] {config_path}에서 데이터 수집 설정 로드: interval_sec={interval_sec}, batch_size={batch_size}, send_interval_sec={send_interval_sec}")
                 return interval_sec, batch_size, send_interval_sec
     except Exception as e:
         print(f"[경고] 설정 파일 읽기 실패: {str(e)}")
