@@ -225,6 +225,11 @@ class BaseLogHandler(abc.ABC):
 
                     if response_data.get("code") == "000" or response_data.get("rstCd") == "000":
                         print(f"[백엔드 통신] 요청 성공: {self.log_type} 로그")
+
+                        # 시동 OFF 로그 전송 성공 시 추가 확인 로그
+                        if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
+                            print(f"[중요] 시동 OFF 로그 전송 성공 확인 - MDN: {log_data.mdn}, offTime: {log_data.offTime}, 좌표: ({log_data.lat}, {log_data.lon})")
+
                         return True, "Success"
                     else:
                         # 오류 메시지 필드도 두 가지 형식 모두 확인
