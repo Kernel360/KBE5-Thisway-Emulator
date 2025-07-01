@@ -274,6 +274,14 @@ class EmulatorManager:
             return True
         return False
 
+    def stop_realtime_data_collection_all(self):
+        """실시간 데이터 수집 타이머 중지"""
+        if hasattr(self, 'data_timer') and self.data_timer:
+            print("[INFO] 실시간 데이터 수집 타이머 중지")
+            self.stop_realtime_data_collection(self.mdn)
+            return True
+        return False
+
     def update_position(self):
         """
         에뮬레이터 위치 업데이트 (카카오 API 경로 데이터 사용)

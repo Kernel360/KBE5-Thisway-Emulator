@@ -1,5 +1,6 @@
 import argparse
 import atexit
+import signal
 import sys
 
 # 기존 서비스 가져오기
@@ -306,7 +307,7 @@ def main():
                     time.sleep(1)
             except KeyboardInterrupt:
                 print("\n[INFO] 사용자에 의해 프로그램이 중단되었습니다.")
-                # 에뮬레이터 중지 (이전에는 cli.stop_emulator(args.mdn)를 호출했지만 이제는 직접 처리)
+                # 에뮬레이터 중지 (이전에는 emulator(args.mdn)를 호출했지만 이제는 직접 처리)
                 print(f"에뮬레이터 {args.mdn}를 중지합니다.")
                 print("에뮬레이터는 GPS 주기정보 전송 종료 시 자동으로 중지됩니다.")
                 # 테스트 목적으로 에뮬레이터 상태 직접 변경
@@ -350,10 +351,36 @@ def main():
 
     return 0
 
-# 프로그램 종료 시 백그라운드 스레드 정리
+# SIGTERM 신호 처리 함수
+def handle_sigterm(signum, frame):
+    print("\n[INFO] SIGTERM 신호를 받았습니다. 에뮬레이터를 정상 종료합니다.")
+
+    # 현재 활성화된 모든 에뮬레이터에 대해 PowerOFF 로그 생성 및 전송
+    active_mdns = list(data_generator.emulator_manager.active_emulators.keys())
+    for mdn in active_mdns:
+        print(f"[INFO] 에뮬레이터 {mdn} 정상 종료 중...")
+        # PowerOFF 로그 생성 및 전송
+        data_generator.stop_vehicle(mdn, send_power_log=True)
+
+    # 기존 cleanup 함수 호출
+    cleanup()
+
+    # 프로그램 종료
+    sys.exit(0)
+
+# 프로그램 종료 시 백그라운드 스레드 정리 (기존 함수 확장)
 def cleanup():
+    # 백그라운드 로그 전송 스레드 중지
     log_storage_manager.stop_background_sender()
+
+    # 실시간 데이터 수집 타이머 중지
+    if hasattr(data_generator.emulator_manager, 'stop_realtime_data_collection_all'):
+        data_generator.emulator_manager.stop_realtime_data_collection_all()
+
     print("[INFO] 프로그램 종료: 리소스 정리 완료")
+
+# SIGTERM 신호 핸들러 등록
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 # 정상 종료 시 cleanup 함수 실행
 atexit.register(cleanup)
