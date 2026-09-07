@@ -12,11 +12,12 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from models.emulator_data import GpsLogRequest, GpsLogItem
 from services.log_generators.base_log_generator import BaseLogGenerator
+from services.log_handlers.gps_log_handler import KST, gps_timestamp, gps_packets
 
 class GpsLogGenerator(BaseLogGenerator):
     """GPS 로그 데이터 생성 담당 클래스"""
 
-    def generate_gps_log(self, mdn: str, generate_full: bool = True) -> Optional[GpsLogRequest]:
+    def generate_gps_log(self, mdn: str, generate_full: bool = True) -> Optional[List[GpsLogRequest]]:
         """
         GPS 로그 요청 데이터 생성 (0~59초 데이터)
         카카오 모빌리티 API만 사용하여 GPS 데이터 생성
@@ -26,7 +27,7 @@ class GpsLogGenerator(BaseLogGenerator):
             generate_full: True면 60개의 전체 데이터 생성, False면 스냅샷용 1개만 생성
 
         Returns:
-            GpsLogRequest: GPS 로그 요청 객체
+            List[GpsLogRequest]: 원본 날짜·시간 및 600개 상한별 GPS packet 목록
         """
         # 에뮬레이터가 없거나 활성화되지 않은 경우
         emulator = self.get_emulator(mdn)
@@ -44,7 +45,7 @@ class GpsLogGenerator(BaseLogGenerator):
                 use_kakao_api = config.get("use_kakao_api", False)
                 default_route = config.get("default_route", {})
         except Exception as e:
-            print(f"설정 파일 로드 중 오류 발생: {e}")
+            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
             print("카카오 API 설정이 필요합니다. config.json 파일을 확인해주세요.")
             return None
 
@@ -86,7 +87,7 @@ class GpsLogGenerator(BaseLogGenerator):
         # 로그 처리 로직 (향후 구현)
         return True
 
-    def create_gps_log_from_collected_data(self, mdn: str, collected_data: List[Dict]) -> GpsLogRequest:
+    def create_gps_log_from_collected_data(self, mdn: str, collected_data: List[Dict]) -> List[GpsLogRequest]:
         """
         실시간으로 수집된 GPS 데이터를 구조화된 로그로 변환
 
@@ -95,14 +96,14 @@ class GpsLogGenerator(BaseLogGenerator):
             collected_data: 실시간으로 수집된 데이터 목록
         """
         if not mdn or not collected_data:
-            return None
+            return []
 
         emulator = self.get_emulator(mdn)
         if not emulator:
-            return None
+            return []
 
-        current_time = datetime.now()
-        time_str = current_time.strftime("%Y%m%d%H%M%S")
+        # Validate every source clock before changing the cumulative distance or building any packet.
+        collected_data = [{**data, "timestamp": gps_timestamp(data.get("timestamp"))} for data in collected_data]
 
         # 디버깅 정보 출력
         print(f"[DEBUG] 수집된 데이터 첫 항목 키: {list(collected_data[0].keys()) if collected_data else 'None'}")
@@ -187,9 +188,9 @@ class GpsLogGenerator(BaseLogGenerator):
             lon_value = round(data.get("longitude", 0), 6)
 
             # 타임스탬프에서 분, 초 정보 추출
-            timestamp = data.get("timestamp")
-            minutes = timestamp.minute if timestamp else 0
-            seconds = timestamp.second if timestamp else i
+            timestamp = data["timestamp"]
+            minutes = timestamp.minute
+            seconds = timestamp.second
 
             log_item = GpsLogItem(
                 min=str(minutes),
@@ -202,27 +203,16 @@ class GpsLogGenerator(BaseLogGenerator):
                 sum=str(int(total_distance)),  # 계산된 누적 거리 사용
                 bat=str(int(data.get("battery", 0)))  # battery 키 사용
             )
-            log_items.append(log_item)
+            log_items.append((timestamp, log_item))
 
         # 최종 누적 거리를 에뮬레이터 매니저에 업데이트
         self.emulator_manager.update_accumulated_distance(int(total_distance), mdn)
 
-        gps_log = GpsLogRequest(
-            mdn=mdn,
-            tid="A001",
-            mid="6",
-            pv="5",
-            did="1",
-            oTime=time_str,
-            cCnt=str(len(log_items)),
-            cList=log_items
-        )
-
-        return gps_log
+        return gps_packets({"mdn": mdn, "tid": "A001", "mid": "6", "pv": "5", "did": "1"}, log_items)
 
     def generate_gps_log_from_kakao_route(self, mdn: str, start_point: Tuple[float, float], 
                                          end_point: Tuple[float, float], 
-                                         generate_full: bool = True) -> Optional[GpsLogRequest]:
+                                         generate_full: bool = True) -> Optional[List[GpsLogRequest]]:
         """
         카카오모빌리티 API를 사용하여 출발지와 목적지 사이의 경로를 기반으로 GPS 로그 생성
 
@@ -233,12 +223,12 @@ class GpsLogGenerator(BaseLogGenerator):
             generate_full: True면 60개의 전체 데이터 생성, False면 스냅샷용 1개만 생성
 
         Returns:
-            GpsLogRequest: GPS 로그 요청 객체
+            List[GpsLogRequest]: 원본 날짜·시간 및 600개 상한별 GPS packet 목록
         """
-        print(f"[DEBUG] 카카오 API 경로 생성 시작 - MDN: {mdn}, 출발: {start_point}, 도착: {end_point}")
+        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
         # 1. 카카오모빌리티 API 호출하여 경로 데이터 가져오기
-        print(f"[DEBUG] 카카오 API 호출 시작 - 출발: {start_point}, 도착: {end_point}")
+        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
         route_data = self._get_kakao_route(start_point, end_point)
         print(f"[DEBUG] 카카오 API 호출 결과: {'성공' if route_data else '실패'}")
 
@@ -276,103 +266,31 @@ class GpsLogGenerator(BaseLogGenerator):
 
         return result
 
-    def _get_kakao_route(self, start: Tuple[float, float], end: Tuple[float, float]) -> Dict:
-        """카카오모빌리티 API를 호출하여 경로 데이터 가져오기"""
+    def _get_kakao_route(self, start: Tuple[float, float], end: Tuple[float, float]) -> Optional[Dict]:
+        """Fetch a route without emitting credentials, positions, response bodies or exception text."""
         import json
-        from urllib.parse import urlencode
-
-        # API 키는 환경 변수나 설정 파일에서 가져오는 것이 좋습니다
         try:
-            import os
-            # 환경 변수에서 설정 파일 경로 확인
-            config_path = os.environ.get("CONFIG_PATH", "config.json")
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                api_key = config.get("kakao_api_key", "")
-        except Exception as e:
-            print(f"[ERROR] 설정 파일 로드 중 오류 발생: {e}")
-            import traceback
-            traceback.print_exc()  # 상세 오류 스택 출력
+            with open(os.environ.get("CONFIG_PATH", "config.json"), "r") as config_file:
+                api_key = json.load(config_file).get("kakao_api_key", "")
+        except Exception:
+            print("[ERROR] 카카오 API 설정 파일을 읽지 못했습니다.")
             return None
-
         if not api_key or api_key == "YOUR_KAKAO_API_KEY":
-            print("[ERROR] 카카오 API 키가 설정되지 않았습니다. config.json 파일에서 설정해주세요.")
+            print("[ERROR] 카카오 API 키가 설정되지 않았습니다.")
             return None
-
-        # API 키 마스킹 (앞 4자리와 뒤 4자리만 표시)
-        if len(api_key) > 8:
-            masked_key = f"{api_key[:4]}...{api_key[-4:]}"
-        else:
-            masked_key = "****"  # 키가 너무 짧으면 전체 마스킹
-        print(f"[DEBUG] 카카오 API 키: {masked_key}")
-
-        url = "https://apis-navi.kakaomobility.com/v1/directions"
-        headers = {
-            "Authorization": f"KakaoAK {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        # 출발지와 목적지 좌표 (경도,위도 순서로 입력)
-        origin = f"{start[1]},{start[0]}"
-        destination = f"{end[1]},{end[0]}"
-
-        # 디버그 로깅
-        print(f"[DEBUG] 카카오 API 요청 - 출발지: {origin}")
-        print(f"[DEBUG] 카카오 API 요청 - 목적지: {destination}")
-
-        params = {
-            "origin": origin,
-            "destination": destination,
-            "priority": "RECOMMEND",  # 추천 경로
-            "car_fuel": "GASOLINE",
-            "car_hipass": False,
-            "alternatives": False,
-            "road_details": True  # 상세 도로 정보 요청
-        }
-
-        # 전체 요청 URL 로깅 (파라미터 포함)
-        full_url = f"{url}?{urlencode(params)}"
-        print(f"[DEBUG] 카카오 API 전체 요청 URL: {full_url}")
-        print(f"[DEBUG] 카카오 API 요청 헤더: {headers}")
-
         try:
-            print("[DEBUG] 카카오 API 호출 시작...")
-            response = requests.get(url, headers=headers, params=params)
-            print(f"[DEBUG] 카카오 API 응답 상태 코드: {response.status_code}")
-            print(f"[DEBUG] 카카오 API 응답 헤더: {response.headers}")
-
-            if response.status_code == 200:
-                response_json = response.json()
-
-                # 응답 데이터 구조 로깅 (전체 응답은 너무 클 수 있으므로 주요 키만)
-                print(f"[DEBUG] 카카오 API 응답 주요 키: {list(response_json.keys())}")
-
-                if 'routes' in response_json and response_json['routes']:
-                    route = response_json['routes'][0]
-                    print(f"[DEBUG] 경로 정보 존재: 섹션 수: {len(route.get('sections', []))}")
-
-                    # 첫 번째 섹션의 정보만 로깅
-                    if route.get('sections'):
-                        first_section = route['sections'][0]
-                        print(f"[DEBUG] 첫 번째 섹션 정보: 도로 수: {len(first_section.get('roads', []))}")
-
-                        # 첫 번째 도로의 정보만 로깅
-                        if first_section.get('roads'):
-                            first_road = first_section['roads'][0]
-                            print(f"[DEBUG] 첫 번째 도로 정보: 좌표 수: {len(first_road.get('vertexes', [])) // 2}")
-                else:
-                    print("[DEBUG] 경로 정보가 없습니다.")
-                    print(f"[DEBUG] 전체 응답 내용: {json.dumps(response_json, indent=2, ensure_ascii=False)}")
-
-                return response_json
-            else:
-                print(f"[ERROR] API 호출 실패: {response.status_code}")
-                print(f"[ERROR] 응답 내용: {response.text}")
-                return None
-        except Exception as e:
-            print(f"[ERROR] API 호출 중 오류 발생: {e}")
-            import traceback
-            traceback.print_exc()  # 상세 오류 스택 출력
+            response = requests.get(
+                "https://apis-navi.kakaomobility.com/v1/directions",
+                headers={"Authorization": f"KakaoAK {api_key}", "Content-Type": "application/json"},
+                params={"origin": f"{start[1]},{start[0]}", "destination": f"{end[1]},{end[0]}",
+                        "priority": "RECOMMEND", "car_fuel": "GASOLINE", "car_hipass": False,
+                        "alternatives": False, "road_details": True},
+                timeout=(3, 5),
+            )
+            print(f"[INFO] 카카오 API 응답 상태: {response.status_code}")
+            return response.json() if response.status_code == 200 else None
+        except Exception:
+            print("[ERROR] 카카오 API 경로 조회에 실패했습니다.")
             return None
 
     def _extract_route_points(self, route_data: Dict, generate_full: bool) -> List[Dict]:
@@ -430,8 +348,8 @@ class GpsLogGenerator(BaseLogGenerator):
             if route_points:
                 first_point = route_points[0]
                 last_point = route_points[-1]
-                print(f"[DEBUG] 첫 번째 좌표: ({first_point['latitude']}, {first_point['longitude']})")
-                print(f"[DEBUG] 마지막 좌표: ({last_point['latitude']}, {last_point['longitude']})")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
         else:
             print(f"[WARNING] 경로 데이터에 'routes' 키가 없거나 비어 있습니다")
             if 'routes' in route_data:
@@ -476,7 +394,7 @@ class GpsLogGenerator(BaseLogGenerator):
         result = []
         # 첫 번째 포인트 추가
         result.append(points[0])
-        print(f"[DEBUG] 첫 번째 포인트 추가: ({points[0]['latitude']}, {points[0]['longitude']})")
+        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
         # 각 구간별로 필요한 보간 포인트 수 계산
         segments = len(points) - 1
@@ -495,8 +413,7 @@ class GpsLogGenerator(BaseLogGenerator):
 
             # 구간 정보 로깅 (첫 번째, 마지막, 그리고 10개 구간마다)
             if i == 0 or i == segments - 1 or i % 10 == 0:
-                print(f"[DEBUG] 구간 {i+1}/{segments} - 시작: ({start_point['latitude']}, {start_point['longitude']}), " +
-                      f"끝: ({end_point['latitude']}, {end_point['longitude']}), 보간 포인트 수: {interpolation_count}")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
             # 두 포인트 사이 보간
             for j in range(1, interpolation_count + 1):
@@ -511,7 +428,7 @@ class GpsLogGenerator(BaseLogGenerator):
 
                 # 첫 번째와 마지막 보간 포인트만 로깅
                 if (i == 0 or i == segments - 1) and (j == 1 or j == interpolation_count):
-                    print(f"[DEBUG] 보간 포인트 추가 - 구간 {i+1}, 포인트 {j}/{interpolation_count}: ({lat}, {lon})")
+                    print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
             # 구간의 끝 포인트 추가 (마지막 구간 제외)
             if i < segments - 1:
@@ -519,7 +436,7 @@ class GpsLogGenerator(BaseLogGenerator):
 
         # 마지막 포인트 추가
         result.append(points[-1])
-        print(f"[DEBUG] 마지막 포인트 추가: ({points[-1]['latitude']}, {points[-1]['longitude']})")
+        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
         print(f"[DEBUG] 보간 완료 - 원본 포인트 수: {len(points)}, 보간된 포인트 수: {total_interpolated}, 결과 포인트 수: {len(result)}")
 
@@ -538,15 +455,15 @@ class GpsLogGenerator(BaseLogGenerator):
             return []
 
         collected_data = []
-        base_time = datetime.now()
+        base_time = datetime.now(KST)
         print(f"[DEBUG] 기준 시간 설정: {base_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # 첫 번째와 마지막 포인트 로깅
         if len(route_points) > 0:
             first_point = route_points[0]
             last_point = route_points[-1]
-            print(f"[DEBUG] 첫 번째 포인트: ({first_point['latitude']}, {first_point['longitude']})")
-            print(f"[DEBUG] 마지막 포인트: ({last_point['latitude']}, {last_point['longitude']})")
+            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
         for i, point in enumerate(route_points):
             # 각 포인트에 시간 정보 추가 (1초 간격)
@@ -568,8 +485,7 @@ class GpsLogGenerator(BaseLogGenerator):
 
             # 첫 번째, 마지막, 그리고 10개 포인트마다 로깅
             if i == 0 or i == len(route_points) - 1 or i % 10 == 0:
-                print(f"[DEBUG] 데이터 포인트 변환 {i+1}/{len(route_points)} - 좌표: ({point['latitude']}, {point['longitude']}), " +
-                      f"시간: {timestamp.strftime('%H:%M:%S')}, 배터리: {battery_voltage:.1f}")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
         print(f"[DEBUG] 경로 포인트 변환 완료 - 입력: {len(route_points)}개, 출력: {len(collected_data)}개")
 

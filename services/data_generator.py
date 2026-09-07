@@ -44,7 +44,7 @@ class EmulatorDataGenerator:
     # GPS 로그 관련 메서드
     #
 
-    def generate_gps_log(self, mdn: str, generate_full: bool = True) -> Optional[GpsLogRequest]:
+    def generate_gps_log(self, mdn: str, generate_full: bool = True) -> Optional[List[GpsLogRequest]]:
         """
         GPS 로그 생성 (GpsLogGenerator에 위임)
 
@@ -53,11 +53,11 @@ class EmulatorDataGenerator:
             generate_full: True면 전체 데이터 생성, False면 스냅샷용 데이터만 생성
 
         Returns:
-            Optional[GpsLogRequest]: 생성된 GPS 로그
+            Optional[List[GpsLogRequest]]: 원본 시각의 날짜/시간별 GPS packet 목록
         """
         return self.gps_generator.generate_gps_log(mdn, generate_full)
 
-    def store_gps_log(self, mdn: str, log_data: GpsLogRequest) -> bool:
+    def store_gps_log(self, mdn: str, log_data: GpsLogRequest | List[GpsLogRequest]) -> bool:
         """
         GPS 로그 저장 (LogStorageManager에 위임)
 
@@ -168,6 +168,9 @@ class EmulatorDataGenerator:
         Returns:
             bool: 처리 성공 여부
         """
+        if isinstance(log_data, list):
+            results = [self.process_gps_log(packet) for packet in log_data]
+            return bool(results) and all(results)
         # 에뮬레이터 존재 여부 확인
         if not self.emulator_manager.is_emulator_exists(log_data.mdn):
             print(f"[ERROR] 존재하지 않는 에뮬레이터입니다: {log_data.mdn}")
@@ -350,7 +353,7 @@ class EmulatorDataGenerator:
     # 로그 처리 메서드
     #
 
-    def process_gps_log(self, log_data: GpsLogRequest) -> bool:
+    def process_gps_log(self, log_data: GpsLogRequest | List[GpsLogRequest]) -> bool:
         """
         수신된 GPS 로그 데이터 처리
 
@@ -360,6 +363,9 @@ class EmulatorDataGenerator:
         Returns:
             bool: 처리 성공 여부
         """
+        if isinstance(log_data, list):
+            results = [self.process_gps_log(packet) for packet in log_data]
+            return bool(results) and all(results)
         # 에뮬레이터 존재 여부 확인
         if not self.emulator_manager.is_emulator_exists(log_data.mdn):
             print(f"[ERROR] 존재하지 않는 에뮬레이터입니다: {log_data.mdn}")
@@ -460,6 +466,8 @@ class EmulatorDataGenerator:
         Returns:
             bool: 저장 성공 여부
         """
+        if log_type == "gps" and isinstance(log_data, list):
+            return self.store_gps_log(mdn, log_data)
         return self.log_storage_manager.store_unsent_log(mdn, log_data, log_type)
 
     #
@@ -484,7 +492,7 @@ class EmulatorDataGenerator:
         """
         return self.log_storage_manager.stop_background_sender()
 
-    def _process_collected_data(self, mdn: str, data_batch: List[Dict[str, Any]], store: bool = True) -> Optional[GpsLogRequest]:
+    def _process_collected_data(self, mdn: str, data_batch: List[Dict[str, Any]], store: bool = True) -> Optional[List[GpsLogRequest]]:
         """
         실시간 데이터 수집 콜백 메서드
         EmulatorManager의 실시간 데이터 수집에서 호출되는 콜백 함수
@@ -495,7 +503,7 @@ class EmulatorDataGenerator:
             store: 생성된 로그를 저장소에 저장할지 여부
 
         Returns:
-            Optional[GpsLogRequest]: 생성된 GPS 로그
+            Optional[List[GpsLogRequest]]: 생성된 GPS packet 목록
         """
         if not data_batch or len(data_batch) == 0:
             print(f"[WARNING] 차량 {mdn}의 수집 데이터가 없습니다")

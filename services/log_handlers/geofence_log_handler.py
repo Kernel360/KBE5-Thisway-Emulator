@@ -19,7 +19,7 @@ class GeofenceLogHandler(BaseLogHandler):
             max_storage_hours: 최대 로그 보관 시간 (시간)
             backend_url: 백엔드 서버 URL
         """
-        super().__init__(log_type="geofence", max_storage_hours=max_storage_hours, backend_url=backend_url, use_auth=False)
+        super().__init__(log_type="geofence", max_storage_hours=max_storage_hours, backend_url=backend_url)
     
     # 로그 타입은 초기화 시 설정함
         
@@ -55,6 +55,6 @@ class GeofenceLogHandler(BaseLogHandler):
         """지오펜스 로그에 맞는 디버그 정보 출력"""
         if isinstance(log_data, GeofenceLogRequest):
             geofence_log = log_data
-            print(f"[디버깅] 지오펜스 로그: {geofence_log.mdn}, 그룹 ID: {geofence_log.geoGrpId}, 포인트 ID: {geofence_log.geoPId}, 이벤트: {geofence_log.evtVal}, 좌표: ({geofence_log.lat}, {geofence_log.lon})")
+            print(f"[INFO] 지오펜스 이벤트: {log_data.evtVal}")
         else:
             print(f"[경고] 잘못된 로그 타입: GeofenceLogHandler에 {type(log_data).__name__} 타입 전달됨")

@@ -10,13 +10,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, Optional, Union
 
 from models.emulator_data import GpsLogRequest, PowerLogRequest, GeofenceLogRequest
+from services.device_credentials import CredentialBinding, load_device_credential
 
 
 class BaseLogHandler(abc.ABC):
     """로그 처리를 위한 기본 추상 클래스"""
 
-    def __init__(self, log_type: str, max_storage_hours: int = 24, backend_url: str = "http://localhost:8080",
-                 use_auth: bool = False, auth_username: str = "", auth_password: str = ""):
+    def __init__(self, log_type: str, max_storage_hours: int = 24, backend_url: str = "http://localhost:8080"):
         """
         로그 핸들러 초기화
 
@@ -24,9 +24,6 @@ class BaseLogHandler(abc.ABC):
             log_type: 로그 타입 (예: 'gps', 'power', 'geofence')
             max_storage_hours: 최대 로그 보관 시간 (시간)
             backend_url: 백엔드 서버 URL
-            use_auth: 인증 사용 여부
-            auth_username: 인증 사용자명
-            auth_password: 인증 비밀번호
         """
         # 해당 로그 타입에 대한 미전송 로그를 저장하는 큐 (MDN별)
         self.pending_logs = {}  # MDN -> Queue
@@ -38,10 +35,6 @@ class BaseLogHandler(abc.ABC):
         self.backend_url = backend_url
         # 로그 타입
         self.log_type = log_type
-        # 인증 정보
-        self.use_auth = use_auth
-        self.auth_username = auth_username
-        self.auth_password = auth_password
 
     @property
     @abc.abstractmethod
@@ -88,9 +81,21 @@ class BaseLogHandler(abc.ABC):
         Returns:
             bool: 저장 성공 여부
         """
-        # 즉시 전송 시도
+        # Freeze event data and the actual first-send identity together. Never re-read a new key after failure.
+        log_data = log_data.model_copy(deep=True)
+        credential = None
+        pause_reason = None
         print(f"[INFO] {self.log_type} 로그 즉시 전송 시도 - MDN: {mdn}")
-        success, error_msg = self.send_log_to_backend(log_data)
+        try:
+            if mdn != log_data.mdn:
+                pause_reason = "packet_identity_changed"
+                raise ValueError("Packet identity mismatch; review required")
+            credential = load_device_credential(mdn, self.backend_url)
+        except ValueError as error:
+            pause_reason = pause_reason or "source_identity_unknown"
+            success, error_msg = False, str(error)
+        else:
+            success, error_msg = self._send_with_credential(log_data, credential)
 
         if success:
             print(f"[SUCCESS] {self.log_type} 로그 즉시 전송 성공 - MDN: {mdn}")
@@ -108,189 +113,48 @@ class BaseLogHandler(abc.ABC):
                     "data": log_data,
                     "timestamp": datetime.now(),
                     "retry_count": 0,
-                    "log_type": self.log_type
+                    "log_type": self.log_type,
+                    "source_binding": credential.binding if credential is not None else None,
+                    "retry_state": "paused" if pause_reason else "pending",
+                    "pause_reason": pause_reason,
                 }
 
                 self.pending_logs[mdn].put(log_entry)
+                if pause_reason:
+                    print(f"[WARNING] {self.log_type} 자동 재전송 일시 중지 - MDN: {mdn}, 검토 사유: {pause_reason}")
                 print(f"[DEBUG] {self.log_type} 로그 저장 성공 - MDN: {mdn}")
-                print(f"[INFO] 현재 백엔드 전송 대기 로그 개수: {self.count_pending_logs(mdn)} - MDN: {mdn}")
+                print(f"[INFO] 현재 백엔드 전송 대기 로그 개수: {self.pending_logs[mdn].qsize()} - MDN: {mdn}")
                 return True  # 저장은 성공했으므로 True 반환
 
     def send_log_to_backend(self, log_data: Union[GpsLogRequest, PowerLogRequest, GeofenceLogRequest]) -> Tuple[bool, str]:
-        """
-        로그를 백엔드에 전송
-
-        Args:
-            log_data: 전송할 로그 데이터
-
-        Returns:
-            Tuple[bool, str]: (성공 여부, 오류 메시지)
-        """
-        import requests
-        import json
-
         try:
-            # 요청 URL 구성
-            url = f"{self.backend_url}{self.backend_endpoint}"
-            print(f"[백엔드 통신] 요청 URL: {url}")
+            credential = load_device_credential(log_data.mdn, self.backend_url)
+        except ValueError as error:
+            return False, str(error)  # Fixed messages only; never echo file contents or credentials.
+        return self._send_with_credential(log_data, credential)
 
-            # JSON 변환
-            log_json = log_data.dict()
-            print(f"[백엔드 통신] 요청 로그 타입: {self.log_type}")
-            print(f"[백엔드 통신] 요청 본문 길이: {len(str(log_json))} 바이트")
+    def _send_with_credential(self, log_data, credential) -> Tuple[bool, str]:
+        import requests
 
-            # 로그 타입 결정 (시동 ON 또는 시동 OFF)
-            log_type_str = ""
-            if self.log_type == 'power':
-                if log_json.get('onTime') and not log_json.get('offTime'):
-                    log_type_str = "시동 ON"
-                elif log_json.get('offTime'):
-                    log_type_str = "시동 OFF"
-                else:
-                    log_type_str = "알 수 없음"
-                print(f"[백엔드 통신] 전송 중인 로그 유형: {log_type_str}")
-
-            # 디버그용으로 일부 필드 값만 출력
-            debug_fields = {}
-            if self.log_type == 'gps' and 'cList' in log_json and log_json['cList']:
-                debug_fields = {
-                    'mdn': log_json.get('mdn'),
-                    'oTime': log_json.get('oTime'),
-                    'cCnt': log_json.get('cCnt'),
-                    'cList_count': len(log_json['cList']),
-                    'first_point': log_json['cList'][0].dict() if hasattr(log_json['cList'][0], 'dict') else log_json['cList'][0] if log_json['cList'] else None
-                }
-            elif self.log_type == 'power':
-                debug_fields = {
-                    'mdn': log_json.get('mdn'),
-                    'onTime': log_json.get('onTime'),
-                    'offTime': log_json.get('offTime'),
-                    'lat': log_json.get('lat'),
-                    'lon': log_json.get('lon'),
-                    'gcd': log_json.get('gcd'),
-                    'sum': log_json.get('sum')
-                }
-            elif self.log_type == 'geofence':
-                debug_fields = {
-                    'mdn': log_json.get('mdn'),
-                    'oTime': log_json.get('oTime'),
-                    'geoGrpId': log_json.get('geoGrpId'),
-                    'geoPId': log_json.get('geoPId'),
-                    'evtVal': log_json.get('evtVal'),
-                    'lat': log_json.get('lat'),
-                    'lon': log_json.get('lon'),
-                    'gcd': log_json.get('gcd'),
-                    'sum': log_json.get('sum')
-                }
-            print(f"[백엔드 통신] 요청 주요 필드: {debug_fields}")
-
-            # 전체 JSON 데이터 출력 (디버깅용)
-            if self.log_type == 'power':
-                print(f"[백엔드 통신] {log_type_str} 전체 JSON 데이터: {json.dumps(log_json, indent=2)}")
-
-            # 디버그용 로그 출력 (로그 타입에 따라 다른 정보 출력)
-            self._print_debug_log(log_data)
-
-            # 요청 헤더
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'User-Agent': 'ThiswayVehicleEmulator/1.0'
-            }
-
-            # 인증 정보 제거 - 인증 없이 요청
-            auth = None
-
-            # 요청 전송 시도 기록
-            print(f"[백엔드 통신] {self.log_type} 로그 전송 시도...")
-            print(f"[백엔드 통신] 인증 정보 사용하지 않음 (open access)")
-
-            # POST 요청 전송
+        # Use the same snapshot that was compared with the queue binding; no credential-file TOCTOU reload.
+        headers = credential.headers()
+        headers.update({"Content-Type": "application/json", "Accept": "application/json"})
+        try:
             response = requests.post(
-                url, 
-                data=json.dumps(log_json), 
-                headers=headers,
-                auth=auth,
-                timeout=10  # 타임아웃 10초
-            )
-
-            # 응답 처리
-            print(f"[백엔드 통신] 응답 상태코드: {response.status_code}")
-            print(f"[백엔드 통신] 응답 헤더: {dict(response.headers)}")
-
-            if response.status_code in [200, 201]:
-                try:
-                    response_data = response.json()
-                    print(f"[백엔드 통신] 응답 본문: {response_data}")
-
-                    if response_data.get("code") == "000" or response_data.get("rstCd") == "000":
-                        print(f"[백엔드 통신] 요청 성공: {self.log_type} 로그")
-
-                        # 시동 OFF 로그 전송 성공 시 추가 확인 로그
-                        if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
-                            print(f"[중요] 시동 OFF 로그 전송 성공 확인 - MDN: {log_data.mdn}, offTime: {log_data.offTime}, 좌표: ({log_data.lat}, {log_data.lon})")
-
-                        return True, "Success"
-                    else:
-                        # 오류 메시지 필드도 두 가지 형식 모두 확인
-                        error_message = response_data.get('message') or response_data.get('rstMsg', '알 수 없는 오류')
-                        error_code = response_data.get('code') or response_data.get('rstCd', 'N/A')
-                        error_msg = f"백엔드 오류: {error_message} (Code: {error_code})"
-                        print(f"[오류] {error_msg}")
-                        return False, error_msg
-                except ValueError as e:
-                    error_msg = f"JSON 응답 파싱 오류: {str(e)}, 응답 본문: {response.text[:200]}"
-                    print(f"[오류] {error_msg}")
-                    return False, error_msg
-            else:
-                error_msg = f"백엔드 응답 오류: HTTP {response.status_code} - {response.text[:200]}"
-                print(f"[오류] {error_msg}")
-                # 401 오류 처리 제거 - 인증을 사용하지 않으므로 필요없음
-                return False, error_msg
-
-        except requests.exceptions.ConnectionError as e:
-            error_msg = f"서버 연결 오류: {str(e)}"
-            print(f"[연결 오류] 백엔드 서버({self.backend_url})에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.")
-            print(f"[연결 오류] 상세 오류 정보: {str(e)}")
-
-            # 로그 타입 확인 (시동 OFF 로그인 경우 더 자세한 정보 출력)
-            if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
-                print(f"[중요] 시동 OFF 로그 전송 실패 - MDN: {log_data.mdn}, onTime: {log_data.onTime}, offTime: {log_data.offTime}")
-                print(f"[중요] 백엔드 서버 URL: {self.backend_url}{self.backend_endpoint}")
-                print(f"[중요] 백엔드 서버가 실행 중인지 확인하세요. 현재 설정된 URL: {self.backend_url}")
-
-            return False, error_msg
-        except requests.exceptions.Timeout as e:
-            error_msg = f"요청 시간 초과: {str(e)}"
-            print(f"[시간 초과] 백엔드 서버가 응답하지 않습니다 (10초 타임아웃)")
-            print(f"[시간 초과] 상세 오류 정보: {str(e)}")
-
-            # 로그 타입 확인 (시동 OFF 로그인 경우 더 자세한 정보 출력)
-            if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
-                print(f"[중요] 시동 OFF 로그 전송 시간 초과 - MDN: {log_data.mdn}, onTime: {log_data.onTime}, offTime: {log_data.offTime}")
-
-            return False, error_msg
-        except requests.exceptions.RequestException as e:
-            error_msg = f"요청 오류: {str(e)}"
-            print(f"[오류] {error_msg}")
-            print(f"[오류] 상세 오류 정보: {str(e)}")
-
-            # 로그 타입 확인 (시동 OFF 로그인 경우 더 자세한 정보 출력)
-            if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
-                print(f"[중요] 시동 OFF 로그 전송 요청 오류 - MDN: {log_data.mdn}, onTime: {log_data.onTime}, offTime: {log_data.offTime}")
-
-            return False, error_msg
-        except Exception as e:
-            error_msg = f"예상치 못한 오류: {str(e)}"
-            print(f"[오류] {error_msg}")
-            import traceback
-            print(f"[오류] 상세 스택 트레이스: {traceback.format_exc()}")
-
-            # 로그 타입 확인 (시동 OFF 로그인 경우 더 자세한 정보 출력)
-            if self.log_type == 'power' and isinstance(log_data, PowerLogRequest) and log_data.offTime:
-                print(f"[중요] 시동 OFF 로그 전송 중 예상치 못한 오류 - MDN: {log_data.mdn}, onTime: {log_data.onTime}, offTime: {log_data.offTime}")
-
-            return False, error_msg
+                f"{self.backend_url.rstrip('/')}{self.backend_endpoint}",
+                json=log_data.model_dump(), headers=headers, timeout=10, allow_redirects=False)
+            if response.status_code == 401:
+                return False, "Device authentication rejected; check binding or replace credential"
+            if response.status_code not in (200, 201):
+                return False, f"Backend HTTP {response.status_code}"
+            result = response.json()
+            if isinstance(result, dict) and (result.get("code") == "000" or result.get("rstCd") == "000"):
+                return True, "Success"
+            return False, "Backend rejected telemetry"
+        except requests.exceptions.RequestException:
+            return False, "Backend request failed"
+        except ValueError:
+            return False, "Invalid backend response"
 
     def process_all_pending_logs(self) -> int:
         """
@@ -329,7 +193,10 @@ class BaseLogHandler(abc.ABC):
                 temp_queue = queue.Queue()
                 while not self.pending_logs[mdn].empty():
                     log_entry = self.pending_logs[mdn].get()
-                    logs.append(log_entry)
+                    # Callers can inspect status without mutating retained identity or event data.
+                    visible = dict(log_entry)
+                    visible["data"] = log_entry["data"].model_copy(deep=True)
+                    logs.append(visible)
                     temp_queue.put(log_entry)
 
                 # 원래 큐 복원
@@ -361,6 +228,34 @@ class BaseLogHandler(abc.ABC):
                 log_entry = self.pending_logs[mdn].get()
                 retry_count = log_entry.get("retry_count", 0)
 
+                # Review-paused rows are retained even past normal retry expiry. Never auto-resume them.
+                if log_entry.get("retry_state") == "paused":
+                    temp_queue.put(log_entry)
+                    continue
+
+                binding = log_entry.get("source_binding")
+                pause_reason = None
+                credential = None
+                if not isinstance(binding, CredentialBinding):
+                    pause_reason = "source_identity_unknown"  # Legacy/initially unauthenticated backlog.
+                elif mdn != log_entry["data"].mdn or mdn != binding.mdn:
+                    pause_reason = "packet_identity_changed"
+                else:
+                    try:
+                        credential = load_device_credential(mdn, self.backend_url)
+                    except ValueError:
+                        pause_reason = "credential_unavailable"
+                    else:
+                        if credential.binding != binding:
+                            pause_reason = "credential_changed"
+
+                if pause_reason:
+                    log_entry["retry_state"] = "paused"
+                    log_entry["pause_reason"] = pause_reason
+                    temp_queue.put(log_entry)
+                    print(f"[WARNING] {self.log_type} 자동 재전송 일시 중지 - MDN: {mdn}, 검토 사유: {pause_reason}")
+                    continue
+
                 print(f"[DEBUG] {self.log_type} 로그 처리 시도 - MDN: {mdn}, 재시도: {retry_count}")
 
                 # 오래된 로그는 삭제
@@ -370,7 +265,7 @@ class BaseLogHandler(abc.ABC):
                     continue
 
                 # 로그 전송 시도
-                success, error_msg = self.send_log_to_backend(log_entry["data"])
+                success, error_msg = self._send_with_credential(log_entry["data"], credential)
                 processed_count += 1
 
                 if success:

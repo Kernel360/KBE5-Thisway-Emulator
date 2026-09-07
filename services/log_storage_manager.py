@@ -265,9 +265,13 @@ class LogStorageManager:
         try:
             # count_pending_logs 메서드로 변경 (count_all_pending_logs는 구현되지 않음)
             # 각 핸들러의 모든 MDN에 대한 로그 수 합산
-            gps_count = sum([len(queue) for queue in self.gps_handler.pending_logs.values()])
-            power_count = sum([len(queue) for queue in self.power_handler.pending_logs.values()])
-            geofence_count = sum([len(queue) for queue in self.geofence_handler.pending_logs.values()])
+            def pending_count(handler):
+                with handler.queue_lock:
+                    return sum(pending.qsize() for pending in handler.pending_logs.values())
+
+            gps_count = pending_count(self.gps_handler)
+            power_count = pending_count(self.power_handler)
+            geofence_count = pending_count(self.geofence_handler)
 
             return {
                 "gps": gps_count,
