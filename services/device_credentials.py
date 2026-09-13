@@ -29,13 +29,27 @@ class DeviceCredentialSnapshot:
                 "X-Request-Id": str(uuid.uuid4()), "X-Request-Timestamp": str(int(time.time()))}
 
 
+def validate_backend_url(backend_url: str) -> str:
+    """Validate before any logging or HTTP, including the unauthenticated startup probe."""
+    error_message = "HTTPS backend origin required (loopback HTTP allowed); userinfo/query/fragment prohibited"
+    try:
+        if not isinstance(backend_url, str) or any(character.isspace() for character in backend_url):
+            raise ValueError(error_message)
+        target = urlsplit(backend_url)
+        if (target.username is not None or target.password is not None or target.query or target.fragment
+                or not target.hostname or target.path not in ("", "/")
+                or (target.port is not None and target.port == 0)
+                or not (target.scheme == "https" or (
+                    target.scheme == "http" and target.hostname in ("localhost", "127.0.0.1", "::1")))):
+            raise ValueError(error_message)
+    except ValueError:
+        # Parser errors may contain input; only a fixed message crosses this boundary.
+        raise ValueError(error_message) from None
+    return backend_url.rstrip("/")
+
+
 def load_device_credential(mdn: str, backend_url: str) -> DeviceCredentialSnapshot:
-    target = urlsplit(backend_url)
-    if (target.username or target.password or target.query or target.fragment
-            or not target.hostname or target.path not in ("", "/")
-            or not (target.scheme == "https" or (
-                target.scheme == "http" and target.hostname in ("localhost", "127.0.0.1", "::1")))):
-        raise ValueError("HTTPS backend required (loopback HTTP allowed)")
+    validate_backend_url(backend_url)
     path = os.environ.get("DEVICE_CREDENTIALS_FILE")
     if not path:
         raise ValueError("DEVICE_CREDENTIALS_FILE required")

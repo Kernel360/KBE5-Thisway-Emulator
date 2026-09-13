@@ -71,12 +71,16 @@ python main.py interactive
 
 ## 설정
 
-에뮬레이터는 `config.py`에서 다음 설정을 사용합니다:
+백엔드 주소는 `CONFIG_PATH`가 가리키는 JSON 파일(미설정 시 `config.json`)의
+`backend_url`을 먼저 사용합니다. 파일에서 주소를 얻지 못하면 `BACKEND_URL` 환경 변수,
+이후 `http://localhost:8080` 순서로 선택합니다. 설정 파일에 `backend_url`이 있으면
+`BACKEND_URL`보다 우선합니다.
 
-- `DEFAULT_LATITUDE` 및 `DEFAULT_LONGITUDE` - 새 에뮬레이터의 기본 위치
-- `API_HOST` 및 `API_PORT` - 백엔드 서버의 호스트 및 포트
-
-이러한 설정은 `config.py`에서 수정하거나 환경 변수를 사용하여 설정할 수 있습니다.
+시작 시에도 telemetry 전송과 같은 URL 검증을 먼저 적용합니다. 외부 주소는 HTTPS,
+loopback은 HTTP를 허용하고 사용자명·비밀번호·query·fragment·하위 경로가 포함된 주소는
+연결 전에 거부합니다. URL 원문과 HTTP 예외 원문은 초기화 로그에 출력하지 않습니다.
+초기 연결 확인은 공개 `GET /api/health`를 사용하며 redirect를 따라가지 않습니다.
+이 확인은 서버의 응답 여부만 확인하고 장치 인증 성공을 증명하지 않습니다.
 
 ## 예시
 
@@ -154,3 +158,6 @@ python -m unittest discover -s tests -v
 
 수집 요청은 전송 시도마다 `X-Request-Id`(UUID v4), `X-Request-Timestamp`(epoch seconds)를 자동 생성합니다. 서버와 시계 차이는 5분 이내여야 하며 원래 `oTime`은 바꾸지 않습니다. 서버의 기본 제한은 장치별 120회/60초, 실제 본문 256 KiB입니다. 동일 source identity가 확인된 retry만 새 HTTP 시도로 보내고 observation 중복 처리는 서버 DB가 담당합니다.
 backlog 소속 보호와 검증은 sibling BE의 `docs/portfolio/work-logs/2026-09-07-emulator-backlog-binding.md`에 기록했습니다.
+
+2026-09-12 초기화 URL 보호·health 경로 수정과 운영/CI 감사는 sibling BE의
+`docs/portfolio/work-logs/2026-09-12-emulator-ops-audit.md`에 기록했습니다.
