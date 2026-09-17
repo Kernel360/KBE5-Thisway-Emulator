@@ -5,6 +5,7 @@
 
 import random
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 
 from models.emulator_data import PowerLogRequest
@@ -43,7 +44,7 @@ class PowerLogGenerator(BaseLogGenerator):
         if not emulator:
             return None
 
-        current_time = datetime.now()
+        current_time = datetime.now(ZoneInfo("Asia/Seoul"))
 
         # API 규격: onTime/offTime은 'yyyymmddhhmmss' 형식
         time_str = current_time.strftime("%Y%m%d%H%M%S")
@@ -81,18 +82,18 @@ class PowerLogGenerator(BaseLogGenerator):
                 last_gps_data = self.emulator_manager.collecting_data[-1]
                 lat = last_gps_data["latitude"]
                 lon = last_gps_data["longitude"]
-                print(f"[INFO] 시동 OFF 로그에 현재 수집 중인 데이터의 마지막 포인트 위치 사용: ({lat}, {lon})")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
             # 마지막 GPS 주기정보가 있으면 해당 위치 사용
             elif self.emulator_manager.last_gps_batch_data and "latitude" in self.emulator_manager.last_gps_batch_data and "longitude" in self.emulator_manager.last_gps_batch_data:
                 last_gps_data = self.emulator_manager.last_gps_batch_data
                 lat = last_gps_data["latitude"]
                 lon = last_gps_data["longitude"]
-                print(f"[INFO] 시동 OFF 로그에 마지막 GPS 주기정보 위치 사용: ({lat}, {lon})")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
             else:
                 # 마지막 GPS 주기정보가 없으면 현재 위치 사용
                 lat = emulator["last_latitude"]
                 lon = emulator["last_longitude"]
-                print(f"[INFO] 시동 OFF 로그에 현재 위치 사용: ({lat}, {lon})")
+                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
 
             # GPS 상태 결정 (random으로 95% 정상 처리)
             is_gps_normal = random.random() < 0.95
@@ -150,10 +151,9 @@ class PowerLogGenerator(BaseLogGenerator):
             if hasattr(self.emulator_manager, "last_power_on_time") and self.emulator_manager.last_power_on_time:
                 on_time = self.emulator_manager.last_power_on_time
             else:
-                # 시동 ON 시간이 없는 경우 현재 시간에서 1시간 전으로 설정 (임의의 값)
-                from datetime import timedelta
-                on_time = (datetime.now() - timedelta(hours=1)).strftime("%Y%m%d%H%M%S")
-                print(f"[WARNING] 시동 ON 시간이 없어 임의 값으로 설정: {on_time}")
+                # Unknown ON time cannot be reconstructed from the OFF reading.
+                print("[WARNING] 시동 ON 원본 시각이 없어 OFF 생성을 보류합니다.")
+                return None
 
         # 위도/경도 값을 소수점 6자리로 제한하고 1,000,000 곱하기
         lat_value = round(lat, 6)
