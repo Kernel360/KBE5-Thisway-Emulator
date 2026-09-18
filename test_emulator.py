@@ -37,15 +37,17 @@ def test_emulator():
     print("\n테스트 2: GPS 로그 생성 중...")
     gps_log = data_generator.generate_gps_log(test_mdn, generate_full=True)
 
-    if gps_log and sum(len(packet.cList) for packet in gps_log) == 60:
-        print(f"✓ 60개 관측을 {len(gps_log)}개 GPS packet으로 생성했습니다")
+    if gps_log and len(gps_log.cList) == 60:
+        print(f"✓ {len(gps_log.cList)}개 항목의 GPS 로그를 생성했습니다")
+        print(f"  첫 번째 위치: ({gps_log.cList[0].lat}, {gps_log.cList[0].lon})")
+        print(f"  마지막 위치: ({gps_log.cList[-1].lat}, {gps_log.cList[-1].lon})")
     else:
         print("✗ GPS 로그 생성에 실패했습니다")
         return False
 
     # Test 3: Store log
     print("\n테스트 3: 로그 저장 중...")
-    success = data_generator.store_gps_log(test_mdn, gps_log)
+    success = data_generator.log_storage_manager.store_unsent_log(test_mdn, gps_log)
 
     if success:
         print("✓ 로그가 성공적으로 저장되었습니다")

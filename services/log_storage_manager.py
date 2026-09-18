@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 
 from models.emulator_data import GpsLogRequest, PowerLogRequest, GeofenceLogRequest
-from services.device_credentials import validate_backend_url
 from services.log_handlers.gps_log_handler import GpsLogHandler
 from services.log_handlers.power_log_handler import PowerLogHandler
 from services.log_handlers.geofence_log_handler import GeofenceLogHandler
@@ -42,22 +41,22 @@ def get_backend_url():
                 config = json.load(f)
                 if "backend_url" in config:
                     backend_url = config["backend_url"]
-                    print("[INFO] 설정 파일에서 백엔드 URL 설정 로드")
-    except Exception:
-        print("[경고] 백엔드 설정 파일 읽기 실패")
+                    print(f"[INFO] {config_path}에서 백엔드 URL 설정 로드: {backend_url}")
+    except Exception as e:
+        print(f"[경고] 설정 파일 읽기 실패: {str(e)}")
 
     # 2. 환경 변수에서 백엔드 URL 확인 (config.json에서 로드 실패한 경우)
     if not backend_url:
         backend_url = os.environ.get("BACKEND_URL")
         if backend_url:
-            print("[INFO] 환경 변수에서 백엔드 URL 설정 로드")
+            print(f"[INFO] 환경 변수에서 백엔드 URL 설정 로드: {backend_url}")
 
     # 3. 기본값 사용 (config.json과 환경 변수 모두 실패한 경우)
     if not backend_url:
         backend_url = default_backend_url
-        print("[INFO] 기본 loopback 백엔드 URL 사용")
+        print(f"[INFO] 기본 백엔드 URL 사용: {backend_url}")
 
-    return validate_backend_url(backend_url)
+    return backend_url
 
 
 def get_data_collection_config():
@@ -109,13 +108,16 @@ class LogStorageManager:
         """
         # 백엔드 API 서버 URL (config.json 또는 환경 변수에서 가져옴)
         self.backend_url = get_backend_url()
-        print("[설정] 백엔드 URL 검증 완료")
+        print(f"[설정] 백엔드 URL: {self.backend_url}")
+        print(f"[설정] GPS 로그 엔드포인트: {self.backend_url}/api/logs/gps")
+        print(f"[설정] 시동 로그 엔드포인트: {self.backend_url}/api/logs/power")
+        print(f"[설정] 지오펜스 로그 엔드포인트: {self.backend_url}/api/logs/geofence")
 
         # 백엔드 연결 상태 확인
         try:
             import requests
             print(f"[설정] 백엔드 서버 연결 상태 확인 중...")
-            response = requests.get(f"{self.backend_url}/api/health", timeout=3, allow_redirects=False)
+            response = requests.get(f"{self.backend_url}/api/auth/health", timeout=3)
             if response.status_code == 200:
                 print(f"[설정] 백엔드 서버 연결 성공! 상태: {response.status_code}")
                 self.backend_connection_status = "Connected"
@@ -126,9 +128,10 @@ class LogStorageManager:
             else:
                 print(f"[설정] 백엔드 서버 연결됨. 비정상 응답: {response.status_code}")
                 self.backend_connection_status = f"Connected (Abnormal: {response.status_code})"
-        except Exception:
-            print("[설정] 백엔드 서버 연결 실패")
-            self.backend_connection_status = "Connection Failed"
+        except Exception as e:
+            print(f"[설정] 백엔드 서버 연결 실패: {str(e)}")
+            print(f"[설정] 유효한 URL인지 확인하세요: {self.backend_url}")
+            self.backend_connection_status = f"Connection Failed: {str(e)}"
 
         # 로그 핸들러 초기화 - 즉시 전송 모드 활성화
         self.gps_handler = GpsLogHandler(max_storage_hours=1, backend_url=self.backend_url)
@@ -262,13 +265,9 @@ class LogStorageManager:
         try:
             # count_pending_logs 메서드로 변경 (count_all_pending_logs는 구현되지 않음)
             # 각 핸들러의 모든 MDN에 대한 로그 수 합산
-            def pending_count(handler):
-                with handler.queue_lock:
-                    return sum(pending.qsize() for pending in handler.pending_logs.values())
-
-            gps_count = pending_count(self.gps_handler)
-            power_count = pending_count(self.power_handler)
-            geofence_count = pending_count(self.geofence_handler)
+            gps_count = sum([len(queue) for queue in self.gps_handler.pending_logs.values()])
+            power_count = sum([len(queue) for queue in self.power_handler.pending_logs.values()])
+            geofence_count = sum([len(queue) for queue in self.geofence_handler.pending_logs.values()])
 
             return {
                 "gps": gps_count,

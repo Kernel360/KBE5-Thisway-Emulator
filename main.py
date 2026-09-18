@@ -78,7 +78,7 @@ class EmulatorCLI:
             print("[INFO] 실시간 데이터 수집 전 카카오 API 경로 데이터 설정 중...")
             gps_log = data_generator.generate_gps_log(mdn, generate_full=True)
             if gps_log:
-                print(f"[INFO] 카카오 API 경로 데이터 설정 성공 - {sum(len(packet.cList) for packet in gps_log)}개 포인트")
+                print(f"[INFO] 카카오 API 경로 데이터 설정 성공 - {len(gps_log.cList)}개 포인트")
             else:
                 print("[WARNING] 카카오 API 경로 데이터 설정 실패 - 실시간 위치 업데이트가 제한될 수 있습니다")
 
@@ -96,7 +96,7 @@ class EmulatorCLI:
             print(f"실시간 데이터 수집을 시작했습니다. 데이터는 {interval_sec}초마다 수집되며, {send_interval_sec}초마다 전송됩니다.")
             return True
         else:
-            # 원본 시각의 날짜/시간 경계를 보존한 GPS packet 목록 생성
+            # 60초 데이터가 포함된 단일 GPS 로그 생성
             gps_log = data_generator.generate_gps_log(mdn, generate_full=True)
 
             if not gps_log:
@@ -105,12 +105,10 @@ class EmulatorCLI:
 
             # 요청된 경우 로그 저장
             if store:
-                if not data_generator.store_gps_log(mdn, gps_log):
-                    print("GPS packet 저장 또는 전송에 실패한 항목이 있습니다.")
-                    return False
-                print(f"{sum(len(packet.cList) for packet in gps_log)}개 항목의 GPS 로그를 생성하고 저장했습니다")
+                data_generator.log_storage_manager.store_unsent_log(mdn, gps_log)
+                print(f"{len(gps_log.cList)}개 항목의 GPS 로그를 생성하고 저장했습니다")
             else:
-                print(f"{sum(len(packet.cList) for packet in gps_log)}개 항목의 GPS 로그를 생성했습니다 (저장 안 함)")
+                print(f"{len(gps_log.cList)}개 항목의 GPS 로그를 생성했습니다 (저장 안 함)")
 
             return True
 
@@ -147,7 +145,7 @@ class EmulatorCLI:
 
         print(f"에뮬레이터 상태: 활성")
         print(f"MDN: {emulator.mdn}")
-        print("위치 원문은 출력하지 않습니다.")
+        print(f"위치: ({emulator.last_latitude}, {emulator.last_longitude})")
         print(f"마지막 업데이트: {emulator.last_update}")
 
         return {
@@ -224,7 +222,7 @@ class EmulatorCLI:
                 self.running = False
                 break
             except Exception as e:
-                print("명령 처리에 실패했습니다.")
+                print(f"오류: {str(e)}")
 
     def print_help(self):
         """도움말 정보 출력"""

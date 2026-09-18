@@ -19,7 +19,7 @@ class PowerLogHandler(BaseLogHandler):
             max_storage_hours: 최대 로그 보관 시간 (시간) - 시동 로그는 24시간 보관 기본값
             backend_url: 백엔드 서버 URL
         """
-        super().__init__(log_type="power", max_storage_hours=max_storage_hours, backend_url=backend_url)
+        super().__init__(log_type="power", max_storage_hours=max_storage_hours, backend_url=backend_url, use_auth=False)
 
     # 로그 타입은 초기화 시 설정함
 
@@ -42,7 +42,7 @@ class PowerLogHandler(BaseLogHandler):
         # 로그 타입 결정 (시동 ON 또는 시동 OFF)
         log_type = "시동 ON" if power_log.onTime and not power_log.offTime else "시동 OFF" if power_log.offTime else "알 수 없음"
 
-        print(f"[INFO] {log_type} 로그 저장 시도")
+        print(f"[DEBUG] {log_type} 로그 저장 시도 - MDN: {mdn}, 시동 ON 시간: {power_log.onTime}, 시동 OFF 시간: {power_log.offTime}, 좌표: ({power_log.lat}, {power_log.lon})")
         success = self.store_log(mdn, power_log)
 
         if success:
@@ -59,6 +59,6 @@ class PowerLogHandler(BaseLogHandler):
         if isinstance(log_data, PowerLogRequest):
             power_log = log_data
             log_type = "시동 ON" if power_log.onTime and not power_log.offTime else "시동 OFF" if power_log.offTime else "알 수 없음"
-            print(f"[INFO] 전원 이벤트: {log_type}")
+            print(f"[디버깅] Power 로그({log_type}): {power_log.mdn}, 시동 ON 시간: {power_log.onTime}, 시동 OFF 시간: {power_log.offTime}, 좌표: ({power_log.lat}, {power_log.lon}), GPS 상태: {power_log.gcd}")
         else:
             print(f"[경고] 잘못된 로그 타입: PowerLogHandler에 {type(log_data).__name__} 타입 전달됨")

@@ -5,7 +5,6 @@
 
 import random
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 
 from models.emulator_data import GeofenceLogRequest
@@ -33,7 +32,7 @@ class GeofenceLogGenerator(BaseLogGenerator):
         if not emulator:
             return None
 
-        current_time = datetime.now(ZoneInfo("Asia/Seoul"))
+        current_time = datetime.now()
 
         # API 규격: oTime은 'yyyyMMddHHmmss' 형식
         time_str = current_time.strftime("%Y%m%d%H%M%S")
@@ -50,8 +49,8 @@ class GeofenceLogGenerator(BaseLogGenerator):
         # 대부분 정상(95%)으로 설정
         gps_status = "A" if random.random() < 0.95 else ("V" if random.random() < 0.9 else "0")
 
-        # 방향각 (백엔드 지오펜스 검증: 0~359)
-        ang = str(random.randint(0, 359))
+        # 방향각 (규격: 0~365)
+        ang = str(random.randint(0, 365))
 
         # 속도 (규격: 0~255 km/h)
         spd = "0" if not emulator["is_active"] else str(random.randint(0, 255))

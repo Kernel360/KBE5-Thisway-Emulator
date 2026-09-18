@@ -4,7 +4,6 @@ import time
 import threading
 import requests
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from models.emulator_data import VehicleData
 
@@ -31,7 +30,7 @@ class EmulatorManager:
         self.last_latitude = 37.5665 + random.uniform(-0.01, 0.01)
         self.last_longitude = 126.9780 + random.uniform(-0.01, 0.01)
         self.is_active = False
-        self.last_update = datetime.now(ZoneInfo("Asia/Seoul"))
+        self.last_update = datetime.now()
         self.accumulated_distance = 0  # 누적 주행거리 (미터)
 
         # MDN별 누적 주행거리 저장을 위한 딕셔너리
@@ -41,7 +40,7 @@ class EmulatorManager:
         self.last_position = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         # 마지막 GPS 주기정보 데이터 포인트 저장
@@ -67,7 +66,7 @@ class EmulatorManager:
             self.mdn: {
                 "latitude": self.last_latitude,
                 "longitude": self.last_longitude,
-                "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+                "timestamp": datetime.now()
             }
         }
 
@@ -104,7 +103,7 @@ class EmulatorManager:
             self.device_firmware_version = device_firmware_version
 
         self.is_active = True
-        self.last_update = datetime.now(ZoneInfo("Asia/Seoul"))
+        self.last_update = datetime.now()
 
         # 새 MDN인 경우에만 누적 거리를 초기화
         if self.mdn not in self.mdn_accumulated_distances:
@@ -117,7 +116,7 @@ class EmulatorManager:
         self.last_position = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         # 이전 버전과의 호환성을 위한 active_emulators 업데이트
@@ -127,7 +126,7 @@ class EmulatorManager:
         self.last_positions[self.mdn] = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         # 백엔드 powerOn 업데이트 제거 - 로그만 남김
@@ -154,14 +153,14 @@ class EmulatorManager:
         self.last_position = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         # 마지막 위치 정보 업데이트
         self.last_positions[self.mdn] = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         # 에뮬레이터 비활성화 처리
@@ -267,7 +266,7 @@ class EmulatorManager:
                 # 마지막 데이터 포인트 저장 (추가된 코드)
                 if self.collecting_data:
                     self.last_gps_batch_data = self.collecting_data[-1]
-                    print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                    print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
 
                 self.data_callback(self.mdn, self.collecting_data)
                 self.collecting_data = []
@@ -294,14 +293,14 @@ class EmulatorManager:
             return
 
         # 현재 좌표값 확인
-        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+        print(f"[DEBUG] 현재 좌표: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
 
         # 좌표가 비정상적으로 작은 경우 (서울 좌표로 초기화)
         if abs(self.last_latitude) < 1.0:  # 위도가 1도보다 작으면 비정상으로 판단
-            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+            print(f"[WARNING] 비정상 좌표 감지: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
             self.last_latitude = 37.5665
             self.last_longitude = 126.9780
-            print("[INFO] 에뮬레이터 위치를 기본값으로 설정했습니다.")
+            print(f"[INFO] 위치 초기화: {self.mdn} - 서울 좌표로 재설정 (37.5665, 126.9780)")
 
         # 카카오 API 경로 데이터 확인
         has_route_data = self.kakao_route_points and len(self.kakao_route_points) > 0
@@ -316,7 +315,7 @@ class EmulatorManager:
             if self.current_route_index < len(self.kakao_route_points):
                 # 현재 경로 포인트 가져오기
                 current_point = self.kakao_route_points[self.current_route_index]
-                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                print(f"[DEBUG] 현재 경로 포인트: {current_point} - MDN: {self.mdn}")
 
                 # 이전 위치 저장 (디버깅용)
                 prev_lat = self.last_latitude
@@ -325,7 +324,7 @@ class EmulatorManager:
                 # 위치 업데이트
                 self.last_latitude = current_point["latitude"]
                 self.last_longitude = current_point["longitude"]
-                print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                print(f"[DEBUG] 위치 업데이트 - 이전: ({prev_lat}, {prev_lon}), 새 위치: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
 
                 # 다음 포인트로 인덱스 이동
                 self.current_route_index += 1
@@ -340,7 +339,7 @@ class EmulatorManager:
                         # 마지막 데이터 포인트 저장 (추가된 코드)
                         if self.collecting_data:
                             self.last_gps_batch_data = self.collecting_data[-1]
-                            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                            print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
 
                         print(f"[INFO] 남은 데이터 처리 중 - {len(self.collecting_data)}개 데이터 포인트 - MDN: {self.mdn}")
                         self.data_callback(self.mdn, self.collecting_data)
@@ -407,7 +406,7 @@ class EmulatorManager:
                     # 마지막 데이터 포인트 저장 (추가된 코드)
                     if self.collecting_data:
                         self.last_gps_batch_data = self.collecting_data[-1]
-                        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                        print(f"[DEBUG] 남은 데이터의 마지막 GPS 주기정보 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
 
                     print(f"[INFO] 남은 데이터 처리 중 - {len(self.collecting_data)}개 데이터 포인트 - MDN: {self.mdn}")
                     self.data_callback(self.mdn, self.collecting_data)
@@ -468,7 +467,7 @@ class EmulatorManager:
             # 카카오 API 경로 데이터가 없는 경우 오류 메시지 출력
             print(f"[WARNING] 카카오 API 경로 데이터가 없습니다. 위치 업데이트를 건너뜁니다 - MDN: {self.mdn}")
             # 위치는 변경하지 않음
-            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+            print(f"[DEBUG] 위치 유지: ({self.last_latitude}, {self.last_longitude}) - MDN: {self.mdn}")
 
         # 이전 버전과의 호환성을 위한 active_emulators 업데이트
         self.active_emulators = {self.mdn: self.get_emulator_dict()}
@@ -478,9 +477,9 @@ class EmulatorManager:
         self.last_positions[self.mdn] = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
-        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+        print(f"[DEBUG] 마지막 위치 정보 업데이트 완료 - MDN: {self.mdn}, 좌표: ({self.last_latitude}, {self.last_longitude})")
 
     def _data_collection_worker(self, interval_sec: float, batch_size: int, send_interval_sec: float, stop_event: threading.Event):
         """
@@ -495,16 +494,16 @@ class EmulatorManager:
         count = 0
         prev_lat = self.last_latitude
         prev_lon = self.last_longitude
-        prev_time = datetime.now(ZoneInfo("Asia/Seoul"))
+        prev_time = datetime.now()
         prev_speed = 0.0
         prev_angle = 0.0
-        last_send_time = datetime.now(ZoneInfo("Asia/Seoul"))
+        last_send_time = datetime.now()
 
         while not stop_event.is_set():
             # 에뮬레이터가 활성화 상태인 경우만 데이터 생성
             if self.is_active:
                 # 현재 시간
-                current_time = datetime.now(ZoneInfo("Asia/Seoul"))
+                current_time = datetime.now()
 
                 # 실시간 데이터 생성 - 위치 업데이트
                 self.update_position()
@@ -581,7 +580,7 @@ class EmulatorManager:
                     # 마지막 데이터 포인트 저장
                     if self.collecting_data:
                         self.last_gps_batch_data = self.collecting_data[-1]
-                        print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+                        print(f"[DEBUG] 마지막 GPS 주기정보 데이터 저장 - MDN: {self.mdn}, 좌표: ({self.last_gps_batch_data['latitude']}, {self.last_gps_batch_data['longitude']})")
 
                     self.data_callback(self.mdn, self.collecting_data)
                     self.collecting_data = []
@@ -617,7 +616,7 @@ class EmulatorManager:
             heading=random.randint(0, 359) if self.is_active else 0,
             battery_level=random.uniform(50, 100),
             engine_temperature=random.uniform(70, 95) if self.is_active else random.uniform(20, 30),
-            timestamp=datetime.now(ZoneInfo("Asia/Seoul"))
+            timestamp=datetime.now()
         )
 
     def get_emulator_dict(self) -> Dict[str, Any]:
@@ -694,7 +693,7 @@ class EmulatorManager:
         """
         self.last_latitude = latitude
         self.last_longitude = longitude
-        self.last_update = datetime.now(ZoneInfo("Asia/Seoul"))
+        self.last_update = datetime.now()
 
         # 누적 주행거리 업데이트
         if distance > 0:
@@ -709,7 +708,7 @@ class EmulatorManager:
         self.last_positions[self.mdn] = {
             "latitude": self.last_latitude,
             "longitude": self.last_longitude,
-            "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+            "timestamp": datetime.now()
         }
 
         return True
@@ -831,7 +830,7 @@ class EmulatorManager:
         # 첫 번째 포인트로 위치 초기화
         if len(route_points) > 0:
             first_point = route_points[0]
-            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+            print(f"[DEBUG] 첫 번째 포인트로 위치 초기화 - 좌표: ({first_point['latitude']}, {first_point['longitude']})")
 
             # 이전 위치 저장 (디버깅용)
             prev_lat = self.last_latitude
@@ -841,13 +840,13 @@ class EmulatorManager:
             self.last_latitude = first_point["latitude"]
             self.last_longitude = first_point["longitude"]
 
-            print("[INFO] 텔레메트리 처리 상태 변경 (좌표·인증정보·원문 생략)")
+            print(f"[DEBUG] 위치 업데이트 - 이전: ({prev_lat}, {prev_lon}), 새 위치: ({self.last_latitude}, {self.last_longitude})")
 
             # 마지막 위치 정보 업데이트
             self.last_positions[self.mdn] = {
                 "latitude": self.last_latitude,
                 "longitude": self.last_longitude,
-                "timestamp": datetime.now(ZoneInfo("Asia/Seoul"))
+                "timestamp": datetime.now()
             }
             print(f"[DEBUG] 마지막 위치 정보 업데이트 완료 - MDN: {self.mdn}")
 
